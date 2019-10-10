@@ -3,11 +3,11 @@ package cli
 import (
 	"io"
 	"log"
-	"os"
 )
 
 type Dumper struct {
 	R       io.Reader
+	W       io.Writer
 	dumping bool
 	quitC   chan struct{}
 }
@@ -24,7 +24,7 @@ func (d *Dumper) Dump() {
 					log.Fatalf("Error reading socket: %s", err)
 				}
 			} else {
-				os.Stdout.Write(buffer[:i])
+				d.W.Write(buffer[:i])
 			}
 		}
 		close(d.quitC)

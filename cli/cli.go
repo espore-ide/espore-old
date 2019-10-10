@@ -1,13 +1,14 @@
 package cli
 
 import (
-	"bufio"
 	"errors"
 	"espore/initializer"
 	"espore/session"
-	"fmt"
-	"os"
 	"regexp"
+	"strings"
+
+	"github.com/gdamore/tcell"
+	"github.com/rivo/tview"
 )
 
 type Config struct {
@@ -20,7 +21,7 @@ type CLI struct {
 	dumper *Dumper
 }
 
-var commandRegex = regexp.MustCompile(`(?m)^\/([^ ]*) *(.*)\n$`)
+var commandRegex = regexp.MustCompile(`(?m)^\/([^ ]*) *(.*)$`)
 var errQuit = errors.New("User quit")
 
 func New(config *Config) *CLI {
@@ -53,21 +54,115 @@ func (c *CLI) parseCommandLine(cmdline string) error {
 }
 
 func (c *CLI) Run() error {
-	console := bufio.NewReader(os.Stdin)
+	/*
+		esc := escape.New(&escape.Config{
+			Reader:   os.Stdin,
+			Sequence: []byte{27, 91, 65},
+			Callback: func() {
+				fmt.Println("UP!!")
+			},
+		})
+	*/
+	/*
+		console := bufio.NewReader(os.Stdin)
+		fmt.Println("CLI ready")
+
+		for {
+			cmdline, err := console.ReadString('\n')
+			if err != nil {
+				return fmt.Errorf("Error reading from console: %s", err)
+			}
+			fmt.Println([]byte(cmdline))
+			err = c.parseCommandLine(cmdline)
+			if err != nil {
+				return fmt.Errorf("Error parsing command line: %s", err)
+			}
+		}
+	*/
+	var history []string
+	var historyPos int
+
+	var appError error
+	app := tview.NewApplication()
+	flexbox := tview.NewFlex()
+	input := tview.NewInputField()
+
+	textView := tview.NewTextView().
+		SetDynamicColors(true).
+		SetRegions(true).
+		SetWordWrap(true).
+		SetChangedFunc(func() {
+			app.Draw()
+		}).
+		SetScrollable(true).
+		ScrollToEnd()
+
+	textView.SetDoneFunc(func(key tcell.Key) {
+		if key == tcell.KeyTAB {
+			app.SetFocus(input)
+		}
+
+	})
+	textView.SetBorder(true)
+
+	flexbox.SetDirection(tview.FlexRow)
+	flexbox.AddItem(textView, 0, 1, false)
+	flexbox.AddItem(input, 1, 0, true)
+
+	input.SetDoneFunc(func(key tcell.Key) {
+		switch key {
+		case tcell.KeyTAB:
+			app.SetFocus(textView)
+		case tcell.KeyEnter:
+			cmd := strings.TrimSpace(input.GetText())
+			if len(cmd) == 0 {
+				return
+			}
+			input.SetText("")
+			err := c.parseCommandLine(cmd)
+			if err != nil {
+				appError = err
+				app.Stop()
+			}
+			lh := len(history)
+			if lh == 0 || (lh > 0 && history[lh-1] != cmd) {
+				history = append(history, cmd)
+				historyPos = lh + 1
+			}
+		}
+	})
+
+	input.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		switch event.Key() {
+		case tcell.KeyUp:
+			if historyPos > 0 {
+				historyPos--
+				input.SetText(history[historyPos])
+			}
+			return nil
+		case tcell.KeyDown:
+			if historyPos < len(history)-1 {
+				historyPos++
+				input.SetText(history[historyPos])
+			} else {
+				input.SetText("")
+			}
+			return nil
+
+		}
+		return event
+	})
+
 	c.dumper = &Dumper{
 		R: c.Session,
+		W: textView,
 	}
-	fmt.Println("CLI ready\n")
 	c.dumper.Dump()
 	defer c.dumper.Stop()
-	for {
-		cmdline, err := console.ReadString('\n')
-		if err != nil {
-			return fmt.Errorf("Error reading from console: %s", err)
-		}
-		err = c.parseCommandLine(cmdline)
-		if err != nil {
-			return fmt.Errorf("Error parsing command line: %s", err)
-		}
+
+	if err := app.SetRoot(flexbox, true).Run(); err != nil {
+		panic(err)
 	}
+
+	return appError
 }
