@@ -2,8 +2,8 @@ package cli
 
 import (
 	"errors"
-	"espore/initializer"
 	"espore/session"
+	"fmt"
 	"regexp"
 	"strings"
 
@@ -16,9 +16,18 @@ type Config struct {
 	OnQuit  func()
 }
 
+type commandHandler struct {
+	handler       func(parameters []string) error
+	minParameters int
+}
+
 type CLI struct {
 	Config
-	dumper *Dumper
+	dumper          *Dumper
+	app             *tview.Application
+	input           *tview.InputField
+	textView        *tview.TextView
+	commandHandlers map[string]*commandHandler
 }
 
 var commandRegex = regexp.MustCompile(`(?m)^\/([^ ]*) *(.*)$`)
@@ -29,56 +38,31 @@ func New(config *Config) *CLI {
 	cli := &CLI{
 		Config: *config,
 	}
+	cli.commandHandlers = cli.buildCommandHandlers()
+
 	return cli
 }
 
 func (c *CLI) parseCommandLine(cmdline string) error {
 	match := commandRegex.FindStringSubmatch(cmdline)
 	if len(match) > 0 {
-		switch match[1] {
-		case "quit":
-			return errQuit
-		case "ls":
-			return c.ls()
-		case "init":
-			c.dumper.Stop()
-			defer c.dumper.Dump()
-			return initializer.Initialize(c.Session)
-		case "unload":
-			return c.unload(match[2])
+		command := match[1]
+		parameters := strings.Split(match[2], " ")
+		handler := c.commandHandlers[command]
+		if handler == nil {
+			fmt.Fprintf(c.textView, "Unknown command %q\n", command)
+			return nil
 		}
-	} else {
-		return c.Session.SendCommand(cmdline)
+		if len(parameters) < handler.minParameters {
+			fmt.Fprintf(c.textView, "Expected at least %d parameters. Got %d", handler.minParameters, len(parameters))
+			return nil
+		}
+		return handler.handler(parameters)
 	}
-	return nil
+	return c.Session.SendCommand(cmdline)
 }
 
 func (c *CLI) Run() error {
-	/*
-		esc := escape.New(&escape.Config{
-			Reader:   os.Stdin,
-			Sequence: []byte{27, 91, 65},
-			Callback: func() {
-				fmt.Println("UP!!")
-			},
-		})
-	*/
-	/*
-		console := bufio.NewReader(os.Stdin)
-		fmt.Println("CLI ready")
-
-		for {
-			cmdline, err := console.ReadString('\n')
-			if err != nil {
-				return fmt.Errorf("Error reading from console: %s", err)
-			}
-			fmt.Println([]byte(cmdline))
-			err = c.parseCommandLine(cmdline)
-			if err != nil {
-				return fmt.Errorf("Error parsing command line: %s", err)
-			}
-		}
-	*/
 	var history []string
 	var historyPos int
 
@@ -159,6 +143,10 @@ func (c *CLI) Run() error {
 	}
 	c.dumper.Dump()
 	defer c.dumper.Stop()
+
+	c.app = app
+	c.input = input
+	c.textView = textView
 
 	if err := app.SetRoot(flexbox, true).Run(); err != nil {
 		panic(err)
