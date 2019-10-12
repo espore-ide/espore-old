@@ -3,6 +3,8 @@ package cli
 import (
 	"io"
 	"log"
+
+	"github.com/rivo/tview"
 )
 
 type Dumper struct {
@@ -15,6 +17,7 @@ type Dumper struct {
 func (d *Dumper) Dump() {
 	d.dumping = true
 	d.quitC = make(chan struct{})
+
 	go func() {
 		buffer := make([]byte, 1024)
 		for d.dumping {
@@ -24,7 +27,7 @@ func (d *Dumper) Dump() {
 					log.Fatalf("Error reading socket: %s", err)
 				}
 			} else {
-				d.W.Write(buffer[:i])
+				d.W.Write([]byte(tview.Escape(string(buffer[:i]))))
 			}
 		}
 		close(d.quitC)

@@ -49,7 +49,6 @@ func (s *Session) AwaitString(search string) error {
 	scanner := bufio.NewScanner(s.Socket)
 	for scanner.Scan() {
 		st := scanner.Text()
-		fmt.Println(st)
 		if st == search {
 			return nil
 		}
@@ -62,7 +61,6 @@ func (s *Session) AwaitRegex(regexSt string) ([]string, error) {
 	r := regexp.MustCompile(regexSt)
 	for scanner.Scan() {
 		st := scanner.Text()
-		fmt.Println(st)
 		match := r.FindStringSubmatch(st)
 		if len(match) > 0 {
 			return match, nil
@@ -83,7 +81,7 @@ func (s *Session) pushloader() error {
 }
 
 func (s *Session) startUpload(fname string, size int64) error {
-	if err := s.SendCommand(fmt.Sprintf("__loader.upload(\"%s\", %d)\n", fname, size)); err != nil {
+	if err := s.SendCommand(fmt.Sprintf("__espore.upload(\"%s\", %d)\n", fname, size)); err != nil {
 		return err
 	}
 	return nil
@@ -133,7 +131,7 @@ func (s *Session) PushFile(srcPath, dstName string) error {
 }
 
 func (s *Session) Close() error {
-	return s.SendCommand("\n__loader.finish()\n")
+	return s.SendCommand("\n__espore.finish()\n")
 }
 
 func (s *Session) GetChipID() (string, error) {

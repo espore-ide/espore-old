@@ -2,6 +2,7 @@ package cli
 
 import (
 	"errors"
+	"espore/cli/syncer"
 	"espore/session"
 	"fmt"
 	"regexp"
@@ -16,11 +17,6 @@ type Config struct {
 	OnQuit  func()
 }
 
-type commandHandler struct {
-	handler       func(parameters []string) error
-	minParameters int
-}
-
 type CLI struct {
 	Config
 	dumper          *Dumper
@@ -28,6 +24,7 @@ type CLI struct {
 	input           *tview.InputField
 	textView        *tview.TextView
 	commandHandlers map[string]*commandHandler
+	syncers         map[string]*syncer.Syncer
 }
 
 var commandRegex = regexp.MustCompile(`(?m)^\/([^ ]*) *(.*)$`)
@@ -36,7 +33,8 @@ var errQuit = errors.New("User quit")
 func New(config *Config) *CLI {
 
 	cli := &CLI{
-		Config: *config,
+		Config:  *config,
+		syncers: make(map[string]*syncer.Syncer),
 	}
 	cli.commandHandlers = cli.buildCommandHandlers()
 
@@ -50,16 +48,24 @@ func (c *CLI) parseCommandLine(cmdline string) error {
 		parameters := strings.Split(match[2], " ")
 		handler := c.commandHandlers[command]
 		if handler == nil {
-			fmt.Fprintf(c.textView, "Unknown command %q\n", command)
+			c.Printf("Unknown command %q\n", command)
 			return nil
 		}
 		if len(parameters) < handler.minParameters {
-			fmt.Fprintf(c.textView, "Expected at least %d parameters. Got %d", handler.minParameters, len(parameters))
+			c.Printf("Expected at least %d parameters. Got %d\n", handler.minParameters, len(parameters))
 			return nil
+		}
+		if handler.releaseInput {
+			c.dumper.Stop()
+			defer c.dumper.Dump()
 		}
 		return handler.handler(parameters)
 	}
 	return c.Session.SendCommand(cmdline)
+}
+
+func (c *CLI) Printf(format string, a ...interface{}) {
+	fmt.Fprintf(c.textView, format, a...)
 }
 
 func (c *CLI) Run() error {
@@ -143,7 +149,6 @@ func (c *CLI) Run() error {
 	}
 	c.dumper.Dump()
 	defer c.dumper.Stop()
-
 	c.app = app
 	c.input = input
 	c.textView = textView

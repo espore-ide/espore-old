@@ -10,14 +10,14 @@ const upbin = `
     end
 
     L.start = function()
-        __loader.echo(0)
+        __espore.echo(0)
         print("\nREADY")
     end
 
     L.finish = function()
         print("\nBYE")
-        __loader.echo(1)
-        __loader = nil
+        __espore.echo(1)
+        __espore = nil
     end
 
     L.upload = function(fname, size)
@@ -65,10 +65,10 @@ const upbin = `
             packages[#packages] = packageName
         end
         for _, packageName in ipairs(packages) do
-            __loader.unload(packageName)
+            __espore.unload(packageName)
         end
     end
-    __loader = L
+    __espore = L
     L.start()
 end)()
 
