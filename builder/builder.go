@@ -1,8 +1,10 @@
 package builder
 
 import (
+	"bytes"
 	"crypto/sha1"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"espore/utils"
 	"fmt"
@@ -248,6 +250,7 @@ type FileEntry2 struct {
 	Path         string   `json:"path"`
 	Hash         string   `json:"hash"`
 	Dependencies []string `json:"-"`
+	Datafiles    []string
 }
 
 type LibDef struct {
@@ -272,11 +275,12 @@ type FirmwareManifest2 struct {
 }
 
 var parseDepRegex2 = regexp.MustCompile(`(?m)require\s*\(\s*"([^"]*)"\s*\)`)
+var parseDFRegex = regexp.MustCompile(`(?m)^--\s*datafile:\s*(.*)$`)
 
-func ReadDependencies(luaFile string) ([]string, error) {
+func ReadDependenciesAndDatafiles(luaFile string) (deps, datafiles []string, err error) {
 	code, err := ioutil.ReadFile(luaFile)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	depMap := make(map[string]bool)
 	matches := parseDepRegex2.FindAllStringSubmatch(string(code), -1)
@@ -285,12 +289,23 @@ func ReadDependencies(luaFile string) ([]string, error) {
 			depMap[match[1]] = true
 		}
 	}
-	var deps []string
+	dfMap := make(map[string]bool)
+	matches = parseDFRegex.FindAllStringSubmatch(string(code), -1)
+	if matches != nil {
+		for _, match := range matches {
+			dfMap[match[1]] = true
+		}
+	}
+
 	for dep := range depMap {
 		deps = append(deps, dep)
 	}
 
-	return deps, nil
+	for df := range dfMap {
+		datafiles = append(datafiles, df)
+	}
+
+	return deps, datafiles, nil
 }
 
 func AddRoot(path string, roots map[string]FirmwareRoot) error {
@@ -309,11 +324,12 @@ func AddRoot(path string, roots map[string]FirmwareRoot) error {
 			return err
 		}
 		if filepath.Ext(f) == ".lua" {
-			deps, err := ReadDependencies(fpath)
+			deps, datafiles, err := ReadDependenciesAndDatafiles(fpath)
 			if err != nil {
 				return err
 			}
 			entry.Dependencies = deps
+			entry.Datafiles = datafiles
 		}
 		entries[entry.Path] = &entry
 	}
@@ -438,12 +454,26 @@ func buildDeviceFirmwareManifest(allRoots map[string]FirmwareRoot, deviceName st
 	return &manifest, nil
 }
 
+func writeFileToImage(imageFile io.Writer, path string, size int64, sourceFile io.Reader) error {
+	fmt.Fprintln(imageFile, path)
+	fmt.Fprintln(imageFile, size)
+	_, err := io.Copy(imageFile, sourceFile)
+	return err
+}
+
 func writeFirmwareImage(manifest *FirmwareManifest2) error {
 	imgFile, err := os.Create(filepath.Join("dist", fmt.Sprintf("%s.img", manifest.ID)))
 	if err != nil {
 		return err
 	}
 	defer imgFile.Close()
+	var datafiles []string
+	var imgBuf = &bytes.Buffer{}
+	fmt.Fprintln(imgBuf, "Version: 1 -- HomeNode Device Image File")
+	fmt.Fprintf(imgBuf, "Device Id: %s\n", manifest.ID)
+	fmt.Fprintf(imgBuf, "Device Name: %s\n", manifest.Name)
+	fmt.Fprintf(imgBuf, "Total files: %d\n", len(manifest.Files)+1)
+	fmt.Fprintln(imgBuf)
 
 	for _, fe := range manifest.Files {
 		err := func() error {
@@ -457,19 +487,28 @@ func writeFirmwareImage(manifest *FirmwareManifest2) error {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintln(imgFile, fe.Path)
-			fmt.Fprintln(imgFile, fe.Hash)
-			fmt.Fprintln(imgFile, fi.Size())
-			if _, err := io.Copy(imgFile, f); err != nil {
+			if err := writeFileToImage(imgBuf, fe.Path, fi.Size(), f); err != nil {
 				return err
 			}
+			datafiles = append(datafiles, fe.Datafiles...)
 			return nil
 		}()
 		if err != nil {
 			return err
 		}
 	}
-	return nil
+
+	datafilesJSON, err := json.Marshal(datafiles)
+	if err := writeFileToImage(imgBuf, "datafiles.json", int64(len(datafilesJSON)), bytes.NewReader(datafilesJSON)); err != nil {
+		return err
+	}
+
+	hasher := sha1.New()
+	hasher.Write(imgBuf.Bytes())
+	fmt.Fprintf(imgFile, "Checksum: %s\n", hex.EncodeToString(hasher.Sum(nil)))
+	_, err = io.Copy(imgFile, imgBuf)
+
+	return err
 }
 
 func Build2() error {
