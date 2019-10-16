@@ -39,6 +39,35 @@ func CopyFile(src, dst string) error {
 	return os.Chmod(dst, srcinfo.Mode())
 }
 
+func enumerateDir(basePath, src string, fileList []string) ([]string, error) {
+	var err error
+	var fds []os.FileInfo
+
+	if _, err = os.Stat(src); err != nil {
+		return fileList, err
+	}
+
+	if fds, err = ioutil.ReadDir(src); err != nil {
+		return fileList, err
+	}
+	for _, fd := range fds {
+		srcfp := path.Join(src, fd.Name())
+
+		if fd.IsDir() {
+			if fileList, err = enumerateDir(path.Join(basePath, fd.Name()), srcfp, fileList); err != nil {
+				return fileList, err
+			}
+		} else {
+			fileList = append(fileList, path.Join(basePath, fd.Name()))
+		}
+	}
+	return fileList, nil
+}
+
+func EnumerateDir(src string) ([]string, error) {
+	return enumerateDir("", src, nil)
+}
+
 func copyDir(basePath, src, dst string, fileList []string) ([]string, error) {
 	var err error
 	var fds []os.FileInfo

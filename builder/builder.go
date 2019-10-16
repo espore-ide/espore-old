@@ -6,6 +6,7 @@ import (
 	"errors"
 	"espore/utils"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"os"
@@ -19,11 +20,11 @@ import (
 
 type DeviceInfo struct {
 	Name string `json:"name"`
+	ID   string `json:"id"`
 }
 
 type FirmwareDef struct {
 	DeviceInfo
-	ID      string   `json:"id"`
 	Libs    []string `json:"libs"`
 	Modules []string `json:"modules"`
 	LFS     []string `json:"lfs,omitempty"`
@@ -261,7 +262,6 @@ type ModuleDef struct {
 
 type FirmwareDef2 struct {
 	DeviceInfo
-	ID      string      `json:"id"`
 	Libs    []LibDef    `json:"libs"`
 	Modules []ModuleDef `json:"modules"`
 }
@@ -294,7 +294,7 @@ func ReadDependencies(luaFile string) ([]string, error) {
 }
 
 func AddRoot(path string, roots map[string]FirmwareRoot) error {
-	list, err := utils.CopyAndEnumerateDir(path, filepath.Join("dist", path))
+	list, err := utils.EnumerateDir(path)
 	if err != nil {
 		return err
 	}
@@ -393,27 +393,39 @@ func AddOtherFiles(allRoots map[string]FirmwareRoot, libs []LibDef, fileMap map[
 	return nil
 }
 
-func buildDeviceFirmware(allRoots map[string]FirmwareRoot, deviceName string) error {
+func AddDeviceSpecificFiles(deviceRoot *FirmwareRoot, fileMap map[string]*FileEntry2) {
+	for _, fe := range deviceRoot.Files {
+		fileMap[fe.Path] = fe
+	}
+}
+
+func buildDeviceFirmwareManifest(allRoots map[string]FirmwareRoot, deviceName string) (*FirmwareManifest2, error) {
 	var fwDef FirmwareDef2
 	devicePath := filepath.Join("site/devices", deviceName)
 	if err := utils.ReadJSON(filepath.Join(devicePath, "firmware.json"), &fwDef); err != nil {
-		return fmt.Errorf("Cannot read firmware file for %s: %s", deviceName, err)
+		return nil, fmt.Errorf("Cannot read firmware file for %s: %s", deviceName, err)
 	}
 	roots, err := getDeviceFirmwareRoots(allRoots, fwDef.Libs)
 	if err != nil {
-		return fmt.Errorf("Cannot build firmware roots for %s: %s", deviceName, err)
+		return nil, fmt.Errorf("Cannot build firmware roots for %s: %s", deviceName, err)
 	}
 
 	fileMap := make(map[string]*FileEntry2)
 	for _, modDef := range fwDef.Modules {
 		if err := AddFilesFromModule(modDef.Name, roots, fileMap); err != nil {
-			return fmt.Errorf("Cannot add files from module %s: %s", modDef.Name, err)
+			return nil, fmt.Errorf("Cannot add files from module %s: %s", modDef.Name, err)
 		}
 	}
 
 	if err := AddOtherFiles(allRoots, fwDef.Libs, fileMap); err != nil {
-		return fmt.Errorf("Error adding other files in device %s: %s", deviceName, err)
+		return nil, fmt.Errorf("Error adding other files in device %s: %s", deviceName, err)
 	}
+
+	deviceRoot, ok := allRoots[devicePath]
+	if !ok {
+		return nil, fmt.Errorf("Cannot find device root for %s", deviceName)
+	}
+	AddDeviceSpecificFiles(&deviceRoot, fileMap)
 
 	var manifest FirmwareManifest2
 	manifest.DeviceInfo = fwDef.DeviceInfo
@@ -423,7 +435,41 @@ func buildDeviceFirmware(allRoots map[string]FirmwareRoot, deviceName string) er
 		manifest.Files = append(manifest.Files, file)
 	}
 
-	return utils.WriteJSON(filepath.Join("dist", fwDef.ID+".json"), manifest)
+	return &manifest, nil
+}
+
+func writeFirmwareImage(manifest *FirmwareManifest2) error {
+	imgFile, err := os.Create(filepath.Join("dist", fmt.Sprintf("%s.img", manifest.ID)))
+	if err != nil {
+		return err
+	}
+	defer imgFile.Close()
+
+	for _, fe := range manifest.Files {
+		err := func() error {
+			path := filepath.Join(fe.Base, fe.Path)
+			f, err := os.Open(path)
+			if err != nil {
+				return err
+			}
+			defer f.Close()
+			fi, err := f.Stat()
+			if err != nil {
+				return err
+			}
+			fmt.Fprintln(imgFile, fe.Path)
+			fmt.Fprintln(imgFile, fe.Hash)
+			fmt.Fprintln(imgFile, fi.Size())
+			if _, err := io.Copy(imgFile, f); err != nil {
+				return err
+			}
+			return nil
+		}()
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func Build2() error {
@@ -456,8 +502,15 @@ func Build2() error {
 	}
 	for _, fd := range deviceLibs {
 		if fd.IsDir() {
-			err := buildDeviceFirmware(roots, fd.Name())
+			err = AddRoot(filepath.Join("site/devices", fd.Name()), roots)
+			manifest, err := buildDeviceFirmwareManifest(roots, fd.Name())
 			if err != nil {
+				return err
+			}
+			if err := utils.WriteJSON(filepath.Join("dist", manifest.ID+".json"), manifest); err != nil {
+				return err
+			}
+			if err := writeFirmwareImage(manifest); err != nil {
 				return err
 			}
 		}
