@@ -11,35 +11,23 @@ import (
 type commandHandler struct {
 	handler       func(parameters []string) error
 	minParameters int
-	releaseInput  bool
-}
-
-func (c *CLI) runCode(luaCode string) error {
-	return c.Session.SendCommand(fmt.Sprintf(`
-(function ()
-%s
-end)()
-`, luaCode))
-
 }
 
 func (c *CLI) ls() error {
-	return c.runCode(`
+	return c.Session.RunCode(`
 	print("")	
-	for name,size in pairs(file.list()) do
-		print(name .. "\t" .. size)
-	end
+	for name,size in pairs(file.list()) do 		print(name .. "\t" .. size)	end
 `)
 }
 
 func (c *CLI) unload(packageName string) error {
 	if packageName == "*" {
-		return c.runCode(`
+		return c.Session.RunCode(`
 		__espore.unloadAll()
 		print("\nAll packages unloaded")
 		`)
 	}
-	return c.runCode(fmt.Sprintf(`
+	return c.Session.RunCode(fmt.Sprintf(`
 		__espore.unload("%s")
 		print("\nUnloaded %s")
 		`, packageName, packageName))
@@ -100,7 +88,7 @@ func (c *CLI) watch(srcPath, dstPath string) error {
 
 func (c *CLI) cat(path string) error {
 	//TODO: encode somehow so as to avoid the newlines in print()
-	return c.runCode(fmt.Sprintf(`
+	return c.Session.RunCode(fmt.Sprintf(`
 	local f = file.open("%s", "r")
 	if f then
 		local st = f:read()
@@ -128,7 +116,6 @@ func (c *CLI) buildCommandHandlers() map[string]*commandHandler {
 		},
 		"init": &commandHandler{
 			minParameters: 0,
-			releaseInput:  true,
 			handler: func(p []string) error {
 				return initializer.Initialize(c.Session)
 			},
@@ -141,7 +128,6 @@ func (c *CLI) buildCommandHandlers() map[string]*commandHandler {
 		},
 		"push": &commandHandler{
 			minParameters: 2,
-			releaseInput:  true,
 			handler: func(p []string) error {
 				return c.push(p[0], p[1])
 			},
@@ -154,7 +140,6 @@ func (c *CLI) buildCommandHandlers() map[string]*commandHandler {
 		},
 		"watch": &commandHandler{
 			minParameters: 1,
-			releaseInput:  true,
 			handler: func(p []string) error {
 				var dstPath string
 				if len(p) > 1 {
@@ -167,6 +152,11 @@ func (c *CLI) buildCommandHandlers() map[string]*commandHandler {
 			minParameters: 1,
 			handler: func(p []string) error {
 				return c.cat(p[0])
+			},
+		},
+		"restart": &commandHandler{
+			handler: func(p []string) error {
+				return c.Session.RunCode("node.restart()")
 			},
 		},
 	}

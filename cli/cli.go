@@ -55,10 +55,8 @@ func (c *CLI) parseCommandLine(cmdline string) error {
 			c.Printf("Expected at least %d parameters. Got %d\n", handler.minParameters, len(parameters))
 			return nil
 		}
-		if handler.releaseInput {
-			c.dumper.Stop()
-			defer c.dumper.Dump()
-		}
+		c.dumper.Stop()
+		defer c.dumper.Dump()
 		return handler.handler(parameters)
 	}
 	return c.Session.SendCommand(cmdline)

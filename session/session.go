@@ -146,6 +146,34 @@ func (s *Session) GetChipID() (string, error) {
 	return match[1], nil
 }
 
+func (s *Session) ensureRuntime() error {
+	err := s.SendCommand("\nprint(\"espore=\" .. tostring(__espore ~= nil))\n")
+	if err != nil {
+		return err
+	}
+	installedStr, err := s.AwaitRegex("espore=(true|false)")
+	if err != nil {
+		return err
+	}
+	if installedStr[1] == "true" {
+		return nil
+	}
+	return s.pushloader()
+}
+
+func (s *Session) RunCode(luaCode string) error {
+	if err := s.ensureRuntime(); err != nil {
+		return err
+	}
+
+	return s.SendCommand(fmt.Sprintf(`
+(function ()
+%s
+end)()
+`, luaCode))
+
+}
+
 func (s *Session) Read(p []byte) (int, error) {
 	return s.Socket.Read(p)
 }
