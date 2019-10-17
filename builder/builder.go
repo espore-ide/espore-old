@@ -16,6 +16,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/gobwas/glob"
 )
@@ -274,7 +275,7 @@ type FirmwareManifest2 struct {
 	Files []*FileEntry2 `json:"files"`
 }
 
-var parseDepRegex2 = regexp.MustCompile(`(?m)require\s*\(\s*"([^"]*)"\s*\)`)
+var parseDepRegex2 = regexp.MustCompile(`(?m)(?:^require|\s+require)\s*\(\s*"([^"]*)"\s*\)`)
 var parseDFRegex = regexp.MustCompile(`(?m)^--\s*datafile:\s*(.*)$`)
 
 func ReadDependenciesAndDatafiles(luaFile string) (deps, datafiles []string, err error) {
@@ -467,11 +468,12 @@ func writeFirmwareImage(manifest *FirmwareManifest2) error {
 		return err
 	}
 	defer imgFile.Close()
-	var datafiles []string
+	var datafiles = []string{} // init like this so when converting to JSON we get an empty array
 	var imgBuf = &bytes.Buffer{}
 	fmt.Fprintln(imgBuf, "Version: 1 -- HomeNode Device Image File")
 	fmt.Fprintf(imgBuf, "Device Id: %s\n", manifest.ID)
 	fmt.Fprintf(imgBuf, "Device Name: %s\n", manifest.Name)
+	fmt.Fprintf(imgBuf, "Date: %s\n", time.Now().Format("Mon, 2 Jan 2006 15:04:05 MST"))
 	fmt.Fprintf(imgBuf, "Total files: %d\n", len(manifest.Files)+1)
 	fmt.Fprintln(imgBuf)
 
@@ -497,7 +499,6 @@ func writeFirmwareImage(manifest *FirmwareManifest2) error {
 			return err
 		}
 	}
-
 	datafilesJSON, err := json.Marshal(datafiles)
 	if err := writeFileToImage(imgBuf, "datafiles.json", int64(len(datafilesJSON)), bytes.NewReader(datafilesJSON)); err != nil {
 		return err
