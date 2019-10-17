@@ -9,7 +9,7 @@ import (
 	"espore/utils"
 )
 
-func Initialize(session *session.Session) error {
+func Initialize_old(session *session.Session) error {
 
 	chipID, err := session.GetChipID()
 	if err != nil {
@@ -31,4 +31,22 @@ func Initialize(session *session.Session) error {
 	}
 
 	return nil
+}
+
+func Initialize(session *session.Session) error {
+
+	chipID, err := session.GetChipID()
+	if err != nil {
+		return err
+	}
+
+	err = session.PushFile(fmt.Sprintf("dist/%s.img", chipID), "update.img")
+	if err != nil {
+		return err
+	}
+	err = session.PushFile("bootloader/init.lua", "init.lua")
+	if err != nil {
+		return err
+	}
+	return session.NodeRestart()
 }

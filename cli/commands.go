@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"espore/builder"
 	"espore/cli/syncer"
 	"espore/initializer"
 	"fmt"
@@ -156,7 +157,16 @@ func (c *CLI) buildCommandHandlers() map[string]*commandHandler {
 		},
 		"restart": &commandHandler{
 			handler: func(p []string) error {
-				return c.Session.RunCode("node.restart()")
+				return c.Session.NodeRestart()
+			},
+		},
+		"build": &commandHandler{
+			handler: func(p []string) error {
+				err := builder.Build2()
+				if err == nil {
+					c.Printf("Firmware images built.\n")
+				}
+				return err
 			},
 		},
 	}

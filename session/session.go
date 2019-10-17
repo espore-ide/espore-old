@@ -29,10 +29,6 @@ func New(config *Config) (*Session, error) {
 		Config: *config,
 	}
 
-	if err := s.pushloader(); err != nil {
-		return nil, err
-	}
-
 	return s, nil
 }
 
@@ -87,7 +83,14 @@ func (s *Session) startUpload(fname string, size int64) error {
 	return nil
 }
 
+func (s *Session) NodeRestart() error {
+	return s.RunCode("node.restart()")
+}
+
 func (s *Session) PushStream(reader io.Reader, size int64, dstName string) error {
+	if err := s.ensureRuntime(); err != nil {
+		return err
+	}
 	sw := NewSlowWriter(s.Socket)
 
 	if err := s.startUpload(dstName, size); err != nil {
@@ -135,7 +138,7 @@ func (s *Session) Close() error {
 }
 
 func (s *Session) GetChipID() (string, error) {
-	if err := s.SendCommand("\nprint('id=' .. node.chipid())\n"); err != nil {
+	if err := s.SendCommand("\nprint('i' .. 'd=' .. node.chipid())\n"); err != nil {
 		return "", err
 	}
 
