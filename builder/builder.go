@@ -16,7 +16,6 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/gobwas/glob"
 )
@@ -473,9 +472,14 @@ func writeFirmwareImage(manifest *FirmwareManifest2) error {
 	fmt.Fprintln(imgBuf, "Version: 1 -- HomeNode Device Image File")
 	fmt.Fprintf(imgBuf, "Device Id: %s\n", manifest.ID)
 	fmt.Fprintf(imgBuf, "Device Name: %s\n", manifest.Name)
-	fmt.Fprintf(imgBuf, "Date: %s\n", time.Now().Format("Mon, 2 Jan 2006 15:04:05 MST"))
 	fmt.Fprintf(imgBuf, "Total files: %d\n", len(manifest.Files)+1)
 	fmt.Fprintln(imgBuf)
+
+	// sort the files alphabetically to avoid variations in order that would affect
+	// the checksum
+	sort.Slice(manifest.Files, func(i, j int) bool {
+		return strings.Compare(manifest.Files[i].Path, manifest.Files[j].Path) < 0
+	})
 
 	for _, fe := range manifest.Files {
 		err := func() error {
