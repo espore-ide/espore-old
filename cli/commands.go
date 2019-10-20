@@ -162,7 +162,7 @@ func (c *CLI) buildCommandHandlers() map[string]*commandHandler {
 		},
 		"build": &commandHandler{
 			handler: func(p []string) error {
-				err := builder.Build2()
+				err := builder.Build()
 				if err == nil {
 					c.Printf("Firmware images built.\n")
 				}

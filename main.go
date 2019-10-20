@@ -49,7 +49,7 @@ func main() {
 	cliFlag := flag.Bool("cli", false, "Run the CLI")
 
 	flag.Parse()
-	err := builder.Build2()
+	err := builder.Build()
 	if err != nil {
 		log.Fatal(err)
 	}

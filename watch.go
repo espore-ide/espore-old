@@ -18,7 +18,7 @@ func watch() {
 			select {
 			case event := <-w.Event:
 				fmt.Println(event) // Print the event's info.
-				builder.Build2()
+				builder.Build()
 				fmt.Println("done")
 			case err := <-w.Error:
 				log.Fatalln(err)
