@@ -58,7 +58,10 @@ type FirmwareManifest2 struct {
 	Files []*FileEntry `json:"files"`
 }
 
-var parseDepRegex2 = regexp.MustCompile(`(?m)(?:^require|\s+require)\s*\(\s*"([^"]*)"\s*\)`)
+var parseDepRegex = []*regexp.Regexp{
+	regexp.MustCompile(`(?m)pcall\s*\(\s*require\s*,\s*"([^"]*)"\s*\)`),
+	regexp.MustCompile(`(?m)(?:^require|\s+require)\s*\(\s*"([^"]*)"\s*\)`),
+}
 var parseDFRegex = regexp.MustCompile(`(?m)^--\s*datafile:\s*(.*)$`)
 
 func ReadDependenciesAndDatafiles(luaFile string) (deps, datafiles []string, err error) {
@@ -67,14 +70,17 @@ func ReadDependenciesAndDatafiles(luaFile string) (deps, datafiles []string, err
 		return nil, nil, err
 	}
 	depMap := make(map[string]bool)
-	matches := parseDepRegex2.FindAllStringSubmatch(string(code), -1)
-	if matches != nil {
-		for _, match := range matches {
-			depMap[match[1]] = true
+	for _, regex := range parseDepRegex {
+		matches := regex.FindAllStringSubmatch(string(code), -1)
+		if matches != nil {
+			for _, match := range matches {
+				depMap[match[1]] = true
+			}
 		}
 	}
+
 	dfMap := make(map[string]bool)
-	matches = parseDFRegex.FindAllStringSubmatch(string(code), -1)
+	matches := parseDFRegex.FindAllStringSubmatch(string(code), -1)
 	if matches != nil {
 		for _, match := range matches {
 			dfMap[match[1]] = true
