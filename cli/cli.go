@@ -30,6 +30,8 @@ type CLI struct {
 var commandRegex = regexp.MustCompile(`(?m)^\/([^ ]*) *(.*)$`)
 var errQuit = errors.New("User quit")
 
+const MAX_TEXT_BUFFER = 10000
+
 func New(config *Config) *CLI {
 
 	cli := &CLI{
@@ -75,12 +77,22 @@ func (c *CLI) Run() error {
 	flexbox := tview.NewFlex()
 	input := tview.NewInputField()
 
-	textView := tview.NewTextView().
+	var textView *tview.TextView
+	textView = tview.NewTextView().
 		SetDynamicColors(true).
 		SetRegions(true).
 		SetWordWrap(true).
 		SetChangedFunc(func() {
 			app.Draw()
+			if len(textView.GetText(false)) > MAX_TEXT_BUFFER {
+				app.QueueUpdate(func() {
+					text := textView.GetText(false)
+					if len(text) > MAX_TEXT_BUFFER {
+						textView.SetText(text[MAX_TEXT_BUFFER*0.9:])
+						textView.ScrollToEnd()
+					}
+				})
+			}
 		}).
 		SetScrollable(true).
 		ScrollToEnd()
