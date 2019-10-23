@@ -254,7 +254,8 @@ func writeFileToImage(imageFile io.Writer, path string, size int64, sourceFile i
 }
 
 func writeFirmwareImage(manifest *FirmwareManifest2) error {
-	imgFile, err := os.Create(filepath.Join("dist", fmt.Sprintf("%s.img", manifest.ID)))
+	imgFilename := filepath.Join("dist", fmt.Sprintf("%s.img", manifest.ID))
+	imgFile, err := os.Create(imgFilename)
 	if err != nil {
 		return err
 	}
@@ -300,16 +301,27 @@ func writeFirmwareImage(manifest *FirmwareManifest2) error {
 		return err
 	}
 
+	var hash string
 	hasher := sha1.New()
 	hasher.Write(imgBuf.Bytes())
-	fmt.Fprintf(imgFile, "Checksum: %s\n", hex.EncodeToString(hasher.Sum(nil)))
+	hash = hex.EncodeToString(hasher.Sum(nil))
+	fmt.Fprintf(imgFile, "Checksum: %s\n", hash)
 	_, err = io.Copy(imgFile, imgBuf)
-
 	if err != nil {
 		return err
 	}
+
+	if err = ioutil.WriteFile(imgFilename+".hash", []byte(hash), 0666); err != nil {
+		return err
+	}
+
 	if manifest.NodeMCUFirmware != "" {
-		err = utils.CopyFile(filepath.Join("site/nodemcu-firmware", manifest.NodeMCUFirmware), fmt.Sprintf("dist/%s.bin", manifest.ID))
+		binFilename := fmt.Sprintf("dist/%s.bin", manifest.ID)
+		hash, err = utils.CopyFile(filepath.Join("site/nodemcu-firmware", manifest.NodeMCUFirmware), binFilename, true)
+		if err != nil {
+			return err
+		}
+		err = ioutil.WriteFile(binFilename+".hash", []byte(hash), 0666)
 	}
 
 	return err

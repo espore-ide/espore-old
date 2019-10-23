@@ -4,6 +4,7 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
+	"hash"
 	"io"
 	"io/ioutil"
 	"log"
@@ -14,29 +15,42 @@ import (
 	"syscall"
 )
 
-func CopyFile(src, dst string) error {
-	var err error
+func CopyFile(src, dst string, hashFile bool) (h string, err error) {
 	var srcfd *os.File
 	var dstfd *os.File
 	var srcinfo os.FileInfo
+	var hasher hash.Hash
+	var r io.Reader
+	if hashFile {
+		hasher = sha1.New()
+	}
 
 	if srcfd, err = os.Open(src); err != nil {
-		return err
+		return "", err
 	}
 	defer srcfd.Close()
 
 	if dstfd, err = os.Create(dst); err != nil {
-		return err
+		return "", err
+	}
+
+	if hashFile {
+		r = io.TeeReader(srcfd, hasher)
+	} else {
+		r = srcfd
 	}
 	defer dstfd.Close()
 
-	if _, err = io.Copy(dstfd, srcfd); err != nil {
-		return err
+	if _, err = io.Copy(dstfd, r); err != nil {
+		return "", err
 	}
 	if srcinfo, err = os.Stat(src); err != nil {
-		return err
+		return "", err
 	}
-	return os.Chmod(dst, srcinfo.Mode())
+	if hashFile {
+		h = hex.EncodeToString(hasher.Sum(nil))
+	}
+	return h, os.Chmod(dst, srcinfo.Mode())
 }
 
 func enumerateDir(basePath, src string, fileList []string) ([]string, error) {
@@ -93,7 +107,7 @@ func copyDir(basePath, src, dst string, fileList []string) ([]string, error) {
 				return fileList, err
 			}
 		} else {
-			if err = CopyFile(srcfp, dstfp); err != nil {
+			if _, err = CopyFile(srcfp, dstfp, false); err != nil {
 				return fileList, err
 			}
 			fileList = append(fileList, path.Join(basePath, fd.Name()))
