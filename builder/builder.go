@@ -49,18 +49,20 @@ type ModuleDef struct {
 
 type FirmwareDef struct {
 	DeviceInfo
-	Libs    []LibDef    `json:"libs"`
-	Modules []ModuleDef `json:"modules"`
+	NodeMCUFirmware string      `json:"nodemcu-firmware"`
+	Libs            []LibDef    `json:"libs"`
+	Modules         []ModuleDef `json:"modules"`
 }
 
 type FirmwareManifest2 struct {
 	DeviceInfo
-	Files []*FileEntry `json:"files"`
+	NodeMCUFirmware string
+	Files           []*FileEntry `json:"files"`
 }
 
 var parseDepRegex = []*regexp.Regexp{
 	regexp.MustCompile(`(?m)pcall\s*\(\s*require\s*,\s*"([^"]*)"\s*\)`),
-	regexp.MustCompile(`(?m)(?:^require|\s+require)\s*\(\s*"([^"]*)"\s*\)`),
+	regexp.MustCompile(`(?m)(?:^require|\s+require|pkg\.require)\s*\(\s*"([^"]*)"\s*(,.*)?\)`),
 }
 var parseDFRegex = regexp.MustCompile(`(?m)^--\s*datafile:\s*(.*)$`)
 
@@ -240,7 +242,7 @@ func buildDeviceFirmwareManifest(allRoots map[string]FirmwareRoot, deviceName st
 	for _, file := range fileMap {
 		manifest.Files = append(manifest.Files, file)
 	}
-
+	manifest.NodeMCUFirmware = fwDef.NodeMCUFirmware
 	return &manifest, nil
 }
 
@@ -302,6 +304,13 @@ func writeFirmwareImage(manifest *FirmwareManifest2) error {
 	hasher.Write(imgBuf.Bytes())
 	fmt.Fprintf(imgFile, "Checksum: %s\n", hex.EncodeToString(hasher.Sum(nil)))
 	_, err = io.Copy(imgFile, imgBuf)
+
+	if err != nil {
+		return err
+	}
+	if manifest.NodeMCUFirmware != "" {
+		err = utils.CopyFile(filepath.Join("site/nodemcu-firmware", manifest.NodeMCUFirmware), fmt.Sprintf("dist/%s.bin", manifest.ID))
+	}
 
 	return err
 }
