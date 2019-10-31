@@ -3,6 +3,7 @@ package main
 import (
 	"espore/builder"
 	"espore/cli"
+	"espore/fwserver"
 	"espore/initializer"
 	"espore/session"
 	"flag"
@@ -47,6 +48,7 @@ func main() {
 	watchFlag := flag.Bool("watch", false, "Watch for changes")
 	initFlag := flag.Bool("initialize", false, "Initialize device")
 	cliFlag := flag.Bool("cli", false, "Run the CLI")
+	serverFlag := flag.Bool("server", false, "Run the firmware server")
 
 	flag.Parse()
 	err := builder.Build()
@@ -63,6 +65,13 @@ func main() {
 	if *watchFlag {
 		watch()
 		return
+	}
+
+	if *serverFlag {
+		fwserver.New(&fwserver.Config{
+			Port: 8080,
+			Base: "dist",
+		})
 	}
 
 	if *cliFlag {
