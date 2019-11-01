@@ -303,14 +303,12 @@ func writeFirmwareImage(manifest *FirmwareManifest2) error {
 
 	var hash string
 	hasher := sha1.New()
-	hasher.Write(imgBuf.Bytes())
-	hash = hex.EncodeToString(hasher.Sum(nil))
-	fmt.Fprintf(imgFile, "Checksum: %s\n", hash)
-	_, err = io.Copy(imgFile, imgBuf)
+	_, err = io.Copy(imgFile, io.TeeReader(imgBuf, hasher))
 	if err != nil {
 		return err
 	}
 
+	hash = hex.EncodeToString(hasher.Sum(nil))
 	if err = ioutil.WriteFile(imgFilename+".hash", []byte(hash), 0666); err != nil {
 		return err
 	}
