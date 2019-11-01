@@ -50,6 +50,21 @@ func New(config *Config) (*FirmwareServer, error) {
 
 }
 
+func (fws *FirmwareServer) Log(r *http.Request, code int, err error, other interface{}) {
+	id := r.Header.Get("X-Chip-Id")
+	if id == "" {
+		id = "?"
+	}
+	agent := r.Header.Get("User-Agent")
+	if agent == "" {
+		agent = "?"
+	}
+	if other == nil {
+		other = ""
+	}
+	log.Printf("%s\t%s\t%s\t%d\t%s\t%s\t%v\n", r.RemoteAddr, id, agent, code, r.URL.Path, err, other)
+}
+
 func (fws *FirmwareServer) Serve(w http.ResponseWriter, r *http.Request) error {
 	path := filepath.Join(fws.Base, strings.Replace(r.URL.Path, "..", "", -1))
 	fi, err := os.Stat(path)
@@ -65,7 +80,7 @@ func (fws *FirmwareServer) Serve(w http.ResponseWriter, r *http.Request) error {
 
 	if r.Header.Get("If-None-Match") == etag {
 		w.WriteHeader(http.StatusNotModified)
-		log.Printf("304 %s\n", r.URL.Path)
+		fws.Log(r, 304, nil, nil)
 		return nil
 	}
 
@@ -76,9 +91,10 @@ func (fws *FirmwareServer) Serve(w http.ResponseWriter, r *http.Request) error {
 	w.Header().Add("Etag", etag)
 	w.Header().Add("Content-Length", strconv.FormatInt(fi.Size(), 10))
 	w.Header().Add("Content-Type", "application/octet-stream")
+	w.Header().Add("X-ETag-Verify", "true")
 	_, err = io.Copy(w, reader)
 	if err == nil {
-		log.Printf("200 %s\t%d\n", r.URL.Path, fi.Size())
+		fws.Log(r, 200, nil, fi.Size())
 	}
 	return err
 }
@@ -89,6 +105,6 @@ func (fws *FirmwareServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte(fmt.Sprintf("Error: %s\n", err)))
-		log.Printf("503 %s %s\n", r.URL.Path, err)
+		fws.Log(r, 503, err, nil)
 	}
 }
