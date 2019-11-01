@@ -2,6 +2,7 @@ package initializer
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"espore/builder"
@@ -40,7 +41,12 @@ func Initialize(session *session.Session) error {
 		return err
 	}
 
-	err = session.PushFile(fmt.Sprintf("dist/%s.img", chipID), "update.img")
+	fwFile := filepath.Join("dist", fmt.Sprintf("%s.img", chipID))
+	if _, err = os.Stat(fwFile); err != nil {
+		fwFile = filepath.Join("dist", "DEFAULT.img")
+	}
+
+	err = session.PushFile(fwFile, "update.img")
 	if err != nil {
 		return err
 	}
