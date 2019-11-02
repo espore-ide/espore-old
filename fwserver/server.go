@@ -62,7 +62,7 @@ func (fws *FirmwareServer) Log(r *http.Request, code int, err error, other inter
 	if other == nil {
 		other = ""
 	}
-	log.Printf("%s\t%s\t%s\t%d\t%s\t%s\t%v\n", r.RemoteAddr, id, agent, code, r.URL.Path, err, other)
+	log.Printf("%s\t%s\t%s\t%d\t%s\t%v\t%v\n", r.RemoteAddr, id, agent, code, r.URL.Path, err, other)
 }
 
 func (fws *FirmwareServer) Serve(w http.ResponseWriter, r *http.Request) error {
