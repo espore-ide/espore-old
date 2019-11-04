@@ -121,8 +121,10 @@ func (c *CLI) Run() error {
 			input.SetText("")
 			err := c.parseCommandLine(cmd)
 			if err != nil {
-				appError = err
+				/* appError = err
 				app.Stop()
+				*/
+				c.Printf("Error executing command: %s", err)
 			}
 			lh := len(history)
 			if lh == 0 || (lh > 0 && history[lh-1] != cmd) {

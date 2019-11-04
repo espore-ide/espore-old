@@ -43,26 +43,33 @@ func (s *Session) SendCommand(cmd string) error {
 
 func (s *Session) AwaitString(search string) error {
 	scanner := bufio.NewScanner(s.Socket)
-	for scanner.Scan() {
-		st := scanner.Text()
-		if st == search {
-			return nil
+	for i := 0; i < 10; i++ {
+		for scanner.Scan() {
+			st := scanner.Text()
+			if st == search {
+				return nil
+			}
 		}
+		time.Sleep(100 * time.Millisecond)
 	}
-	return errors.New("not found")
+	return errors.New("string not found")
 }
 
 func (s *Session) AwaitRegex(regexSt string) ([]string, error) {
 	scanner := bufio.NewScanner(s.Socket)
 	r := regexp.MustCompile(regexSt)
-	for scanner.Scan() {
-		st := scanner.Text()
-		match := r.FindStringSubmatch(st)
-		if len(match) > 0 {
-			return match, nil
+
+	for i := 0; i < 10; i++ {
+		for scanner.Scan() {
+			st := scanner.Text()
+			match := r.FindStringSubmatch(st)
+			if len(match) > 0 {
+				return match, nil
+			}
 		}
+		time.Sleep(100 * time.Millisecond)
 	}
-	return nil, errors.New("not found")
+	return nil, errors.New("regex not found")
 }
 
 func (s *Session) pushloader() error {
