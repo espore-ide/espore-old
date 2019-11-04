@@ -68,6 +68,16 @@ const upbin = `
             __espore.unload(packageName)
         end
     end
+
+    L.ls = function()
+        local list = file.list()
+        local keys = {}
+        for k in pairs(list) do keys[#keys+1] = k end
+        table.sort(keys)
+        for _, key in ipairs(keys) do
+            print(key .. "\t" .. list[key])
+        end
+    end
     __espore = L
     L.start()
 end)()

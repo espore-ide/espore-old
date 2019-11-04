@@ -15,10 +15,7 @@ type commandHandler struct {
 }
 
 func (c *CLI) ls() error {
-	return c.Session.RunCode(`
-	print("")	
-	for name,size in pairs(file.list()) do 		print(name .. "\t" .. size)	end
-`)
+	return c.Session.RunCode(`__espore.ls()`)
 }
 
 func (c *CLI) unload(packageName string) error {
