@@ -105,6 +105,6 @@ func (fws *FirmwareServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte(fmt.Sprintf("Error: %s\n", err)))
-		fws.Log(r, 503, err, nil)
+		fws.Log(r, 500, err, nil)
 	}
 }
