@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-const throttle = 20 * time.Millisecond
+const throttle = 100 * time.Millisecond
 const chunkSize = 128
 
 type Config struct {
@@ -94,17 +94,32 @@ func (s *Session) NodeRestart() error {
 	return s.RunCode("node.restart()")
 }
 
+func (s *Session) RenameFile(oldName, newName string) error {
+	s.RunCode(fmt.Sprintf("__espore.rename(%q, %q)", oldName, newName))
+	r, err := s.AwaitRegex("RENAME_(OK|FAIL)")
+	if err != nil {
+		return errors.New("Error waiting for rename file operation")
+	}
+	if r[1] != "OK" {
+		return errors.New("Rename operation failed")
+	}
+	return nil
+}
+
 func (s *Session) PushStream(reader io.Reader, size int64, dstName string) error {
 	if err := s.ensureRuntime(); err != nil {
 		return err
 	}
 	sw := NewSlowWriter(s.Socket)
 
-	if err := s.startUpload(dstName, size); err != nil {
+	const tmpfile = "upload.tmp"
+	if err := s.startUpload(tmpfile, size); err != nil {
 		return err
 	}
 
-	s.AwaitString("BEGIN")
+	if err := s.AwaitString("BEGIN"); err != nil {
+		return errors.New("Error waiting for upload BEGIN signal")
+	}
 
 	wg := new(sync.WaitGroup)
 	wg.Add(1)
@@ -121,10 +136,14 @@ func (s *Session) PushStream(reader io.Reader, size int64, dstName string) error
 		hash = hex.EncodeToString(hasher.Sum(nil))
 	}()
 
-	s.AwaitString("0")
 	wg.Wait()
-	s.AwaitString(hash)
-	return nil
+	if copyErr != nil {
+		return fmt.Errorf("Error pushing file: %s", copyErr)
+	}
+	if err := s.AwaitString(hash); err != nil {
+		return errors.New("Hash mismatch in uploaded file")
+	}
+	return s.RenameFile(tmpfile, dstName)
 }
 
 func (s *Session) PushFile(srcPath, dstName string) error {
@@ -163,7 +182,7 @@ func (s *Session) ensureRuntime() error {
 	}
 	installedStr, err := s.AwaitRegex("espore=(true|false)")
 	if err != nil {
-		return err
+		return errors.New("Error ensuring __espore is installed")
 	}
 	if installedStr[1] == "true" {
 		return nil

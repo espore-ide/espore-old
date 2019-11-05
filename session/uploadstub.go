@@ -20,6 +20,16 @@ const upbin = `
         __espore = nil
     end
 
+    L.rename = function (oldname, newname)
+        if file.exists(oldname) then
+            file.remove(newname)    
+            file.rename(oldname, newname)
+            print("RENAME_OK")
+        else
+            print("RENAME_FAIL")
+        end
+    end
+
     L.upload = function(fname, size)
         local remaining = size
         local f = file.open(fname, "w+")

@@ -65,9 +65,9 @@ func (c *CLI) watch(srcPath, dstPath string) error {
 					dstName := filepath.Join(dstPath, relFile)
 					c.dumper.Stop()
 					defer c.dumper.Dump()
-					c.Session.PushFile(path, dstName)
+					err = c.Session.PushFile(path, dstName)
 					if err != nil {
-						c.Printf("Error pushing %s: %s", dstName, err)
+						c.Printf("[red]Error pushing %s: %s[-:-:-]\n", dstName, err)
 					} else {
 						c.Printf("Pushed %s\n", dstName)
 					}
