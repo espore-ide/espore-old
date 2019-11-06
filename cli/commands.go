@@ -89,10 +89,10 @@ func (c *CLI) cat(path string) error {
 	return c.Session.RunCode(fmt.Sprintf(`
 	local f = file.open("%s", "r")
 	if f then
-		local st = f:read()
+		local st = f:readline()
 		while st ~= nil do
-			print(st)
-			st = f:read()	
+			print(st:sub(1,#st-1))
+			st = f:readline()	
 		end
 	end
 	`, path))
