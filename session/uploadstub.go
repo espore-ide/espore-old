@@ -20,9 +20,9 @@ const upbin = `
         __espore = nil
     end
 
-    L.rename = function (oldname, newname)
+    L.rename = function(oldname, newname)
         if file.exists(oldname) then
-            file.remove(newname)    
+            file.remove(newname)
             file.rename(oldname, newname)
             print("RENAME_OK")
         else
@@ -35,6 +35,21 @@ const upbin = `
         local f = file.open(fname, "w+")
         local h = crypto.new_hash("sha1")
         local nextChunk
+        local rprint = print
+        local printbuf = {}
+        local timer = tmr.create()
+        timer:register(
+            500,
+            tmr.ALARM_AUTO,
+            function()
+                rprint(size - remaining)
+            end
+        )
+        print = function(txt)
+            if #printbuf < 50 then
+                table.insert(printbuf, txt)
+            end
+        end
 
         local function writer(data)
             f:write(data)
@@ -44,24 +59,32 @@ const upbin = `
         end
 
         nextChunk = function()
-            print(remaining)
+            timer:stop()
+            timer:start()
+            rprint(size - remaining)
             if remaining <= 0 then
                 f:close()
-                uart.on("data")
                 local hash = encoder.toHex(h:finalize())
-                print(hash)
+                rprint(hash)
+                uart.on("data")
+                print = rprint
+                timer:stop()
+                timer:unregister()
+                for _, txt in ipairs(printbuf) do
+                    print(txt)
+                end
                 return
             end
 
             local chunkSize = remaining
-            if chunkSize > 255 then
-                chunkSize = 255
+            if chunkSize > 128 then
+                chunkSize = 128
             end
             uart.on("data", chunkSize, writer, 0)
         end
 
+        rprint("\nBEGIN")
         nextChunk()
-        print("BEGIN")
     end
 
     L.unload = function(packageName)
@@ -82,7 +105,9 @@ const upbin = `
     L.ls = function()
         local list = file.list()
         local keys = {}
-        for k in pairs(list) do keys[#keys+1] = k end
+        for k in pairs(list) do
+            keys[#keys + 1] = k
+        end
         table.sort(keys)
         for _, key in ipairs(keys) do
             print(key .. "\t" .. list[key])
@@ -91,5 +116,6 @@ const upbin = `
     __espore = L
     L.start()
 end)()
+
 
 `

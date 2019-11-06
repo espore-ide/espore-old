@@ -7,8 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"regexp"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -16,17 +18,30 @@ import (
 const throttle = 100 * time.Millisecond
 const chunkSize = 128
 
+type Logger interface {
+	Printf(fmt string, item ...interface{})
+}
 type Config struct {
 	Socket io.ReadWriteCloser
 }
 
 type Session struct {
 	Config
+	Log     Logger
+	scanner *bufio.Scanner
+}
+
+type defaultLogger struct{}
+
+func (dl *defaultLogger) Printf(fmt string, item ...interface{}) {
+	log.Printf(fmt, item...)
 }
 
 func New(config *Config) (*Session, error) {
 	s := &Session{
-		Config: *config,
+		Config:  *config,
+		Log:     &defaultLogger{},
+		scanner: bufio.NewScanner(config.Socket),
 	}
 
 	return s, nil
@@ -42,13 +57,13 @@ func (s *Session) SendCommand(cmd string) error {
 }
 
 func (s *Session) AwaitString(search string) error {
-	scanner := bufio.NewScanner(s.Socket)
 	for i := 0; i < 10; i++ {
-		for scanner.Scan() {
-			st := scanner.Text()
+		for s.scanner.Scan() {
+			st := s.scanner.Text()
 			if st == search {
 				return nil
 			}
+			i = 0
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
@@ -56,16 +71,16 @@ func (s *Session) AwaitString(search string) error {
 }
 
 func (s *Session) AwaitRegex(regexSt string) ([]string, error) {
-	scanner := bufio.NewScanner(s.Socket)
 	r := regexp.MustCompile(regexSt)
 
 	for i := 0; i < 10; i++ {
-		for scanner.Scan() {
-			st := scanner.Text()
+		for s.scanner.Scan() {
+			st := s.scanner.Text()
 			match := r.FindStringSubmatch(st)
 			if len(match) > 0 {
 				return match, nil
 			}
+			i = 0
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
@@ -117,32 +132,83 @@ func (s *Session) PushStream(reader io.Reader, size int64, dstName string) error
 		return err
 	}
 
-	if err := s.AwaitString("BEGIN"); err != nil {
+	if _, err := s.AwaitRegex("BEGIN"); err != nil {
 		return errors.New("Error waiting for upload BEGIN signal")
 	}
 
 	wg := new(sync.WaitGroup)
-	wg.Add(1)
+	wg.Add(2)
 	var copyErr error
+	var recvErr error
 	var hash string
+	rc := make(chan int64)
+
 	go func() {
-		defer wg.Done()
 		hasher := sha1.New()
 		reader := io.TeeReader(reader, hasher)
-		_, copyErr = io.Copy(sw, reader)
-		if copyErr != nil {
-			return
-		}
-		hash = hex.EncodeToString(hasher.Sum(nil))
-	}()
+		sent := int64(0)
+		buf := make([]byte, chunkSize)
+		defer func() {
+			hash = hex.EncodeToString(hasher.Sum(nil))
+			wg.Done()
+		}()
 
+		for {
+			received, ok := <-rc
+			if !ok {
+				return
+			}
+			if sent-received == 0 {
+				i, err := reader.Read(buf)
+				if i > 0 {
+					_, copyErr = sw.Write(buf[:i])
+					if copyErr != nil {
+						return
+					}
+					sent += int64(i)
+				}
+				if err != nil {
+					if err != io.EOF {
+						copyErr = err
+					}
+					return
+				}
+			}
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		defer close(rc)
+		var received = int64(0)
+		for received < size {
+			rc <- received
+			st, err := s.AwaitRegex(`^(\d+)$`)
+			if err != nil {
+				recvErr = fmt.Errorf("Error waiting for download progress response: %s", err)
+				return
+			}
+			received, err = strconv.ParseInt(st[1], 10, 64)
+			if err != nil {
+				recvErr = fmt.Errorf("Error parsing remaining size: %s", err)
+				return
+			}
+		}
+	}()
 	wg.Wait()
 	if copyErr != nil {
 		return fmt.Errorf("Error pushing file: %s", copyErr)
 	}
-	if err := s.AwaitString(hash); err != nil {
-		return errors.New("Hash mismatch in uploaded file")
+	if recvErr != nil {
+		return fmt.Errorf("Error receiving file: %s", recvErr)
 	}
+	m, err := s.AwaitRegex("([0-9a-fA-F]{40})")
+	if err != nil {
+		return errors.New("Error waiting for file checksum hash")
+	}
+	if m[1] != hash {
+		return fmt.Errorf("Checksum hash mismatch. Expected %s, got %s", hash, m[1])
+	}
+
 	return s.RenameFile(tmpfile, dstName)
 }
 

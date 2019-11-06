@@ -17,7 +17,7 @@ func NewSlowWriter(writer io.Writer) *SlowWriter {
 
 func (sw *SlowWriter) Write(data []byte) (int, error) {
 	size := len(data)
-	for len(data) > 0 {
+	for {
 		thisChunk := chunkSize
 		if thisChunk > len(data) {
 			thisChunk = len(data)
@@ -26,6 +26,9 @@ func (sw *SlowWriter) Write(data []byte) (int, error) {
 			return 0, err
 		}
 		data = data[thisChunk:]
+		if len(data) == 0 {
+			break
+		}
 		time.Sleep(throttle)
 	}
 	return size, nil
