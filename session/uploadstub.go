@@ -38,11 +38,27 @@ const upbin = `
         local rprint = print
         local printbuf = {}
         local timer = tmr.create()
+        local timeout
+        local cleanup = function()
+            f:close()
+            uart.on("data")
+            print = rprint
+            timer:stop()
+            timer:unregister()
+            for _, txt in ipairs(printbuf) do
+                print(txt)
+            end
+        end
         timer:register(
             500,
             tmr.ALARM_AUTO,
             function()
                 rprint(size - remaining)
+                timeout = timeout + 1
+                if timeout > 10 then
+                    rprint("\n\nTransfer timeout")
+                    cleanup()
+                end
             end
         )
         print = function(txt)
@@ -62,17 +78,11 @@ const upbin = `
             timer:stop()
             timer:start()
             rprint(size - remaining)
+            timeout = 0
             if remaining <= 0 then
-                f:close()
                 local hash = encoder.toHex(h:finalize())
                 rprint(hash)
-                uart.on("data")
-                print = rprint
-                timer:stop()
-                timer:unregister()
-                for _, txt in ipairs(printbuf) do
-                    print(txt)
-                end
+                cleanup()
                 return
             end
 
@@ -109,6 +119,7 @@ const upbin = `
             keys[#keys + 1] = k
         end
         table.sort(keys)
+        print()
         for _, key in ipairs(keys) do
             print(key .. "\t" .. list[key])
         end
@@ -116,6 +127,7 @@ const upbin = `
     __espore = L
     L.start()
 end)()
+
 
 
 `
