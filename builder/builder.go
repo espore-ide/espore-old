@@ -19,6 +19,8 @@ import (
 	"github.com/gobwas/glob"
 )
 
+var libColFolders = []string{"site/lib", "lib"}
+
 type DeviceInfo struct {
 	Name string `json:"name"`
 	ID   string `json:"id"`
@@ -41,6 +43,7 @@ type LibDef struct {
 	Name       string   `json:"name"`
 	IncludeLua bool     `json:"includeLua"`
 	Include    []string `json:"include"`
+	BasePath   string
 }
 type ModuleDef struct {
 	Name      string `json:"name"`
@@ -136,11 +139,18 @@ func getDeviceFirmwareRoots(allRoots map[string]FirmwareRoot, libs []LibDef) ([]
 	var roots []FirmwareRoot
 	for _, libDef := range libs {
 		if libDef.IncludeLua {
-			root, ok := allRoots[filepath.Join("site/lib", libDef.Name)]
+			var ok bool
+			for _, lcf := range libColFolders {
+				var root FirmwareRoot
+				root, ok = allRoots[filepath.Join(lcf, libDef.Name)]
+				if ok {
+					roots = append(roots, root)
+					break
+				}
+			}
 			if !ok {
 				return nil, fmt.Errorf("Cannot find library with name '%s'", libDef.Name)
 			}
-			roots = append(roots, root)
 		}
 	}
 	return append(roots, allRoots["firmware"]), nil
@@ -187,14 +197,21 @@ func AddOtherFiles(allRoots map[string]FirmwareRoot, libs []LibDef, fileMap map[
 			if err != nil {
 				return fmt.Errorf("Error in glob expression, library %s: %s", lib.Name, err)
 			}
-			libRoot, ok := allRoots[filepath.Join("site/lib", lib.Name)]
+			var ok bool
+			for _, lcf := range libColFolders {
+				var libRoot FirmwareRoot
+				libRoot, ok = allRoots[filepath.Join(lcf, lib.Name)]
+				if ok {
+					for path, entry := range libRoot.Files {
+						if g.Match(path) {
+							fileMap[path] = entry
+						}
+					}
+					break
+				}
+			}
 			if !ok {
 				return fmt.Errorf("Cannot find library %s: %s", lib.Name, err)
-			}
-			for path, entry := range libRoot.Files {
-				if g.Match(path) {
-					fileMap[path] = entry
-				}
 			}
 		}
 	}
@@ -336,15 +353,17 @@ func Build() error {
 		return err
 	}
 
-	var siteLibs []os.FileInfo
-	if siteLibs, err = ioutil.ReadDir("site/lib"); err != nil {
-		return err
-	}
-	for _, fd := range siteLibs {
-		if fd.IsDir() {
-			err = AddRoot(filepath.Join("site/lib", fd.Name()), roots)
-			if err != nil {
-				return err
+	for _, libColFolder := range libColFolders {
+		var siteLibs []os.FileInfo
+		if siteLibs, err = ioutil.ReadDir(libColFolder); err != nil {
+			return err
+		}
+		for _, fd := range siteLibs {
+			if fd.IsDir() {
+				err = AddRoot(filepath.Join(libColFolder, fd.Name()), roots)
+				if err != nil {
+					return err
+				}
 			}
 		}
 	}
