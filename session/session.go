@@ -87,13 +87,23 @@ func (s *Session) AwaitRegex(regexSt string) ([]string, error) {
 	return nil, errors.New("regex not found")
 }
 
-func (s *Session) pushloader() error {
-	if err := s.SendCommand(upbin); err != nil {
+func (s *Session) pushRuntime() error {
+	var err error
+	defer func() {
+		if err == nil {
+			s.Log.Printf("OK\n")
+		} else {
+			s.Log.Printf("ERROR\n")
+		}
+	}()
+
+	s.Log.Printf("Pushing espore runtime ...")
+	if err = s.SendCommand(upbin); err != nil {
 		return err
 	}
 
-	if err := s.AwaitString("READY"); err != nil {
-		return errors.New("Loader failed")
+	if err = s.AwaitString("READY"); err != nil {
+		return errors.New("Pushing runtime failed")
 	}
 	return nil
 }
@@ -122,12 +132,13 @@ func (s *Session) RenameFile(oldName, newName string) error {
 }
 
 func (s *Session) PushStream(reader io.Reader, size int64, dstName string) error {
+	const tmpfile = "__upload.tmp"
 	if err := s.ensureRuntime(); err != nil {
 		return err
 	}
+	s.Log.Printf("Pushing %s ", dstName)
 	sw := NewSlowWriter(s.Socket)
 
-	const tmpfile = "upload.tmp"
 	if err := s.startUpload(tmpfile, size); err != nil {
 		return err
 	}
@@ -141,6 +152,7 @@ func (s *Session) PushStream(reader io.Reader, size int64, dstName string) error
 	var copyErr error
 	var recvErr error
 	var hash string
+	var progressCount int64
 	rc := make(chan int64)
 
 	go func() {
@@ -157,6 +169,10 @@ func (s *Session) PushStream(reader io.Reader, size int64, dstName string) error
 			received, ok := <-rc
 			if !ok {
 				return
+			}
+			if received > progressCount {
+				s.Log.Printf(".")
+				progressCount += size / 10
 			}
 			if sent-received == 0 {
 				i, err := reader.Read(buf)
@@ -208,8 +224,12 @@ func (s *Session) PushStream(reader io.Reader, size int64, dstName string) error
 	if m[1] != hash {
 		return fmt.Errorf("Checksum hash mismatch. Expected %s, got %s", hash, m[1])
 	}
-
-	return s.RenameFile(tmpfile, dstName)
+	if err := s.RenameFile(tmpfile, dstName); err != nil {
+		s.Log.Printf("ERROR\n")
+		return err
+	}
+	s.Log.Printf("OK\n")
+	return nil
 }
 
 func (s *Session) PushFile(srcPath, dstName string) error {
@@ -253,7 +273,7 @@ func (s *Session) ensureRuntime() error {
 	if installedStr[1] == "true" {
 		return nil
 	}
-	return s.pushloader()
+	return s.pushRuntime()
 }
 
 func (s *Session) RunCode(luaCode string) error {

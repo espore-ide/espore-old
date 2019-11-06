@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/gdamore/tcell"
 	"github.com/rivo/tview"
@@ -39,6 +40,7 @@ func New(config *Config) *CLI {
 		syncers: make(map[string]*syncer.Syncer),
 	}
 	cli.commandHandlers = cli.buildCommandHandlers()
+	cli.Session.Log = cli
 
 	return cli
 }
@@ -66,6 +68,9 @@ func (c *CLI) parseCommandLine(cmdline string) error {
 
 func (c *CLI) Printf(format string, a ...interface{}) {
 	fmt.Fprintf(c.textView, format, a...)
+	/*	c.app.QueueUpdateDraw(func() {
+		fmt.Printf("Q: %s", format)
+	})*/
 }
 
 func (c *CLI) Run() error {
@@ -109,6 +114,22 @@ func (c *CLI) Run() error {
 	flexbox.AddItem(textView, 0, 1, false)
 	flexbox.AddItem(input, 1, 0, true)
 
+	commands := make(chan func(), 10)
+	go func() {
+		wg := sync.WaitGroup{}
+		for cmdFunc := range commands {
+			wg.Add(1)
+			app.QueueUpdate(func() {
+				go func() {
+					defer wg.Done()
+					cmdFunc()
+				}()
+			})
+			wg.Wait()
+		}
+
+	}()
+
 	input.SetDoneFunc(func(key tcell.Key) {
 		switch key {
 		case tcell.KeyTAB:
@@ -119,12 +140,11 @@ func (c *CLI) Run() error {
 				return
 			}
 			input.SetText("")
-			err := c.parseCommandLine(cmd)
-			if err != nil {
-				/* appError = err
-				app.Stop()
-				*/
-				c.Printf("Error executing command: %s", err)
+			commands <- func() {
+				err := c.parseCommandLine(cmd)
+				if err != nil {
+					c.Printf("Error executing command: %s", err)
+				}
 			}
 			lh := len(history)
 			if lh == 0 || (lh > 0 && history[lh-1] != cmd) {
@@ -168,6 +188,7 @@ func (c *CLI) Run() error {
 	if err := app.SetRoot(flexbox, true).Run(); err != nil {
 		panic(err)
 	}
+	close(commands)
 
 	return appError
 }
