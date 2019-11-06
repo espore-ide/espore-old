@@ -51,21 +51,6 @@ func main() {
 	serverFlag := flag.Bool("server", false, "Run the firmware server")
 
 	flag.Parse()
-	err := builder.Build()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	if *initFlag {
-		if err := initFirmware(); err != nil {
-			log.Fatal(err)
-		}
-	}
-
-	if *watchFlag {
-		watch()
-		return
-	}
 
 	if *serverFlag {
 		fwserver.New(&fwserver.Config{
@@ -88,5 +73,20 @@ func main() {
 		if err != nil {
 			log.Fatalf("CLI:%s", err)
 		}
+	}
+	err := builder.Build()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if *initFlag {
+		if err := initFirmware(); err != nil {
+			log.Fatal(err)
+		}
+	}
+
+	if *watchFlag {
+		watch()
+		return
 	}
 }
