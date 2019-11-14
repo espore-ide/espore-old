@@ -55,6 +55,10 @@ func (fws *FirmwareServer) Log(r *http.Request, code int, err error, other inter
 	if id == "" {
 		id = "?"
 	}
+	name := r.Header.Get("X-Node-Name")
+	if name == "" {
+		name = "?"
+	}
 	agent := r.Header.Get("User-Agent")
 	if agent == "" {
 		agent = "?"
@@ -62,7 +66,7 @@ func (fws *FirmwareServer) Log(r *http.Request, code int, err error, other inter
 	if other == nil {
 		other = ""
 	}
-	log.Printf("%s\t%s\t%s\t%d\t%s\t%v\t%v\n", r.RemoteAddr, id, agent, code, r.URL.Path, err, other)
+	log.Printf("%s\t%s\t%s\t%s\t%d\t%s\t%v\t%v\n", r.RemoteAddr, name, id, agent, code, r.URL.Path, err, other)
 }
 
 func (fws *FirmwareServer) Serve(w http.ResponseWriter, r *http.Request) error {
