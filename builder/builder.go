@@ -29,6 +29,7 @@ type DeviceInfo struct {
 type FirmwareRoot struct {
 	BasePath string
 	Files    map[string]*FileEntry
+	Modules  []ModuleDef `json:"modules"`
 }
 
 type FileEntry struct {
@@ -37,24 +38,24 @@ type FileEntry struct {
 	Hash         string   `json:"hash"`
 	Dependencies []string `json:"-"`
 	Datafiles    []string
+	Content      []byte `json:"-"`
 }
 
 type LibDef struct {
-	Name       string   `json:"name"`
-	IncludeLua bool     `json:"includeLua"`
-	Include    []string `json:"include"`
-	BasePath   string
+	Name     string   `json:"name"`
+	Include  []string `json:"include"`
+	BasePath string
 }
 type ModuleDef struct {
-	Name      string `json:"name"`
-	Autostart bool   `json:"autostart"`
+	Name      string          `json:"name"`
+	Autostart bool            `json:"autostart"`
+	Config    json.RawMessage `json:"config,omitempty"`
 }
 
 type FirmwareDef struct {
 	DeviceInfo
-	NodeMCUFirmware string      `json:"nodemcu-firmware"`
-	Libs            []LibDef    `json:"libs"`
-	Modules         []ModuleDef `json:"modules"`
+	NodeMCUFirmware string   `json:"nodemcu-firmware"`
+	Libs            []LibDef `json:"libs"`
 }
 
 type FirmwareManifest2 struct {
@@ -110,6 +111,9 @@ func AddRoot(path string, roots map[string]FirmwareRoot) error {
 	}
 	entries := make(map[string]*FileEntry)
 	for _, f := range list {
+		if f == "modules.json" {
+			continue
+		}
 		var entry FileEntry
 		fpath := filepath.Join(path, f)
 		entry.Path = f
@@ -128,9 +132,13 @@ func AddRoot(path string, roots map[string]FirmwareRoot) error {
 		}
 		entries[entry.Path] = &entry
 	}
+	var modules []ModuleDef
+	utils.ReadJSON(filepath.Join(path, "modules.json"), &modules)
+
 	roots[path] = FirmwareRoot{
 		BasePath: path,
 		Files:    entries,
+		Modules:  modules,
 	}
 	return nil
 }
@@ -138,19 +146,17 @@ func AddRoot(path string, roots map[string]FirmwareRoot) error {
 func getDeviceFirmwareRoots(allRoots map[string]FirmwareRoot, libs []LibDef) ([]FirmwareRoot, error) {
 	var roots []FirmwareRoot
 	for _, libDef := range libs {
-		if libDef.IncludeLua {
-			var ok bool
-			for _, lcf := range libColFolders {
-				var root FirmwareRoot
-				root, ok = allRoots[filepath.Join(lcf, libDef.Name)]
-				if ok {
-					roots = append(roots, root)
-					break
-				}
+		var ok bool
+		for _, lcf := range libColFolders {
+			var root FirmwareRoot
+			root, ok = allRoots[filepath.Join(lcf, libDef.Name)]
+			if ok {
+				roots = append(roots, root)
+				break
 			}
-			if !ok {
-				return nil, fmt.Errorf("Cannot find library with name '%s'", libDef.Name)
-			}
+		}
+		if !ok {
+			return nil, fmt.Errorf("Cannot find library with name '%s'", libDef.Name)
 		}
 	}
 	return append(roots, allRoots["firmware"]), nil
@@ -224,6 +230,33 @@ func AddDeviceSpecificFiles(deviceRoot *FirmwareRoot, fileMap map[string]*FileEn
 	}
 }
 
+func removeDuplicateModules(mods []ModuleDef) []ModuleDef {
+	modmap := make(map[string]ModuleDef)
+	for _, mod := range mods {
+		if _, ok := modmap[mod.Name]; !ok {
+			modmap[mod.Name] = mod
+		}
+	}
+	mods = make([]ModuleDef, 0, len(modmap))
+	for _, mod := range modmap {
+		mods = append(mods, mod)
+	}
+	sort.SliceStable(mods, func(i, j int) bool {
+		return strings.Compare(mods[i].Name, mods[j].Name) < 0
+	})
+	return mods
+}
+
+func NewVirtualFileEntry(data []byte, path string) *FileEntry {
+	var fe FileEntry
+	fe.Path = path
+	fe.Content = data
+	hasher := sha1.New()
+	hasher.Write(data)
+	fe.Hash = hex.EncodeToString(hasher.Sum(nil))
+	return &fe
+}
+
 func buildDeviceFirmwareManifest(allRoots map[string]FirmwareRoot, deviceName string) (*FirmwareManifest2, error) {
 	var fwDef FirmwareDef
 	devicePath := filepath.Join("site/devices", deviceName)
@@ -234,9 +267,20 @@ func buildDeviceFirmwareManifest(allRoots map[string]FirmwareRoot, deviceName st
 	if err != nil {
 		return nil, fmt.Errorf("Cannot build firmware roots for %s: %s", deviceName, err)
 	}
+	deviceRoot, ok := allRoots[devicePath]
+	if !ok {
+		return nil, fmt.Errorf("Cannot find device root for %s", deviceName)
+	}
+
+	var modules []ModuleDef
+	modules = append(modules, deviceRoot.Modules...)
+	for _, root := range roots {
+		modules = append(modules, root.Modules...)
+	}
+	modules = removeDuplicateModules(modules)
 
 	fileMap := make(map[string]*FileEntry)
-	for _, modDef := range fwDef.Modules {
+	for _, modDef := range modules {
 		if err := AddFilesFromModule(modDef.Name, roots, fileMap); err != nil {
 			return nil, fmt.Errorf("Cannot add files from module %s: %s", modDef.Name, err)
 		}
@@ -246,11 +290,13 @@ func buildDeviceFirmwareManifest(allRoots map[string]FirmwareRoot, deviceName st
 		return nil, fmt.Errorf("Error adding other files in device %s: %s", deviceName, err)
 	}
 
-	deviceRoot, ok := allRoots[devicePath]
-	if !ok {
-		return nil, fmt.Errorf("Cannot find device root for %s", deviceName)
-	}
 	AddDeviceSpecificFiles(&deviceRoot, fileMap)
+
+	modbytes, err := json.MarshalIndent(modules, "", "\t")
+	if err != nil {
+		return nil, err
+	}
+	fileMap["modules.json"] = NewVirtualFileEntry(modbytes, "modules.json")
 
 	var manifest FirmwareManifest2
 	manifest.DeviceInfo = fwDef.DeviceInfo
@@ -293,17 +339,26 @@ func writeFirmwareImage(manifest *FirmwareManifest2) error {
 
 	for _, fe := range manifest.Files {
 		err := func() error {
-			path := filepath.Join(fe.Base, fe.Path)
-			f, err := os.Open(path)
-			if err != nil {
-				return err
+			var r io.Reader
+			var size int64
+			if fe.Content != nil {
+				r = bytes.NewReader(fe.Content)
+				size = int64(len(fe.Content))
+			} else {
+				path := filepath.Join(fe.Base, fe.Path)
+				f, err := os.Open(path)
+				if err != nil {
+					return err
+				}
+				defer f.Close()
+				fi, err := f.Stat()
+				if err != nil {
+					return err
+				}
+				r = f
+				size = fi.Size()
 			}
-			defer f.Close()
-			fi, err := f.Stat()
-			if err != nil {
-				return err
-			}
-			if err := writeFileToImage(imgBuf, fe.Path, fi.Size(), f); err != nil {
+			if err := writeFileToImage(imgBuf, fe.Path, size, r); err != nil {
 				return err
 			}
 			datafiles = append(datafiles, fe.Datafiles...)
