@@ -73,7 +73,7 @@ func (s *Session) AwaitString(search string) error {
 func (s *Session) AwaitRegex(regexSt string) ([]string, error) {
 	r := regexp.MustCompile(regexSt)
 
-	for i := 0; i < 20; i++ {
+	for i := 0; i < 100; i++ {
 		for s.scanner.Scan() {
 			st := s.scanner.Text()
 			match := r.FindStringSubmatch(st)
