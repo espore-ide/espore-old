@@ -20,18 +20,13 @@ func NewLineWriter(writer io.Writer) *LineWriter {
 
 func (lw *LineWriter) Write(data []byte) (int, error) {
 	scanner := bufio.NewScanner(bytes.NewBuffer(data))
-	var size int
 	for scanner.Scan() {
-		i, err := lw.w.Write(scanner.Bytes())
+		line := append(scanner.Bytes(), 10) // add a LF at the end
+		i, err := lw.w.Write(line)
 		if err != nil {
-			return size, err
+			return i, err
 		}
-		_, err = lw.w.Write([]byte{'\n'})
-		if err != nil {
-			return size, err
-		}
-		i++
 		time.Sleep(throttle)
 	}
-	return size, nil
+	return len(data), nil
 }

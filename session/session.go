@@ -29,6 +29,7 @@ type Session struct {
 	Config
 	Log     Logger
 	scanner *bufio.Scanner
+	writeC  chan []byte
 }
 
 type defaultLogger struct{}
@@ -42,13 +43,20 @@ func New(config *Config) (*Session, error) {
 		Config:  *config,
 		Log:     &defaultLogger{},
 		scanner: bufio.NewScanner(config.Socket),
+		writeC:  make(chan []byte, 100),
 	}
+
+	go func() {
+		for data := range s.writeC {
+			s.Socket.Write(data)
+		}
+	}()
 
 	return s, nil
 }
 
 func (s *Session) SendCommand(cmd string) error {
-	sw := NewLineWriter(s.Socket)
+	sw := NewLineWriter(s)
 	_, err := sw.Write([]byte(cmd))
 	if err != nil {
 		return err
@@ -71,6 +79,7 @@ func (s *Session) AwaitString(search string) error {
 }
 
 func (s *Session) AwaitRegex(regexSt string) ([]string, error) {
+
 	r := regexp.MustCompile(regexSt)
 
 	for i := 0; i < 100; i++ {
@@ -137,7 +146,7 @@ func (s *Session) PushStream(reader io.Reader, size int64, dstName string) error
 		return err
 	}
 	s.Log.Printf("Pushing %s ", dstName)
-	sw := NewSlowWriter(s.Socket)
+	sw := NewSlowWriter(s)
 
 	if err := s.startUpload(tmpfile, size); err != nil {
 		return err
@@ -246,6 +255,7 @@ func (s *Session) PushFile(srcPath, dstName string) error {
 }
 
 func (s *Session) Close() error {
+	close(s.writeC)
 	return s.SendCommand("\n__espore.finish()\n")
 }
 
@@ -291,4 +301,9 @@ end)()
 
 func (s *Session) Read(p []byte) (int, error) {
 	return s.Socket.Read(p)
+}
+
+func (s *Session) Write(p []byte) (int, error) {
+	s.writeC <- p
+	return len(p), nil
 }
