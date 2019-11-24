@@ -1,7 +1,6 @@
 package session
 
 import (
-	"bufio"
 	"crypto/sha1"
 	"encoding/hex"
 	"errors"
@@ -27,9 +26,8 @@ type Config struct {
 
 type Session struct {
 	Config
-	Log     Logger
-	scanner *bufio.Scanner
-	writeC  chan []byte
+	Log    Logger
+	writeC chan []byte
 }
 
 type defaultLogger struct{}
@@ -40,10 +38,9 @@ func (dl *defaultLogger) Printf(fmt string, item ...interface{}) {
 
 func New(config *Config) (*Session, error) {
 	s := &Session{
-		Config:  *config,
-		Log:     &defaultLogger{},
-		scanner: bufio.NewScanner(config.Socket),
-		writeC:  make(chan []byte, 100),
+		Config: *config,
+		Log:    &defaultLogger{},
+		writeC: make(chan []byte, 100),
 	}
 
 	go func() {
@@ -64,38 +61,28 @@ func (s *Session) SendCommand(cmd string) error {
 	return nil
 }
 
-func (s *Session) AwaitString(search string) error {
-	for i := 0; i < 20; i++ {
-		for s.scanner.Scan() {
-			st := s.scanner.Text()
-			if st == search {
-				return nil
-			}
-			i = 0
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	return errors.New("string not found")
-}
-
 func (s *Session) AwaitRegex(regexSt string) ([]string, error) {
-
+	timeout := time.After(time.Second * 10)
 	r := regexp.MustCompile(regexSt)
 
-	for i := 0; i < 100; i++ {
-		for s.scanner.Scan() {
-			st := s.scanner.Text()
-			match := r.FindStringSubmatch(st)
-			if len(match) > 0 {
-				return match, nil
-			}
-			i = 0
+	for {
+		line, err := s.ReadLine()
+		if err != nil {
+			break
 		}
-		time.Sleep(100 * time.Millisecond)
+		match := r.FindStringSubmatch(line)
+		if len(match) > 0 {
+			return match, nil
+		}
+		select {
+		case <-timeout:
+			return nil, errors.New("regex not found")
+		default:
+
+		}
 	}
 	return nil, errors.New("regex not found")
 }
-
 func (s *Session) pushRuntime() error {
 	var err error
 	defer func() {
@@ -111,7 +98,7 @@ func (s *Session) pushRuntime() error {
 		return err
 	}
 
-	if err = s.AwaitString("READY"); err != nil {
+	if _, err = s.AwaitRegex("READY$"); err != nil {
 		return errors.New("Pushing runtime failed")
 	}
 	return nil
@@ -207,7 +194,7 @@ func (s *Session) PushStream(reader io.Reader, size int64, dstName string) error
 		var received = int64(0)
 		for received < size {
 			rc <- received
-			st, err := s.AwaitRegex(`^(\d+)$`)
+			st, err := s.AwaitRegex(`(\d+)$`)
 			if err != nil {
 				recvErr = fmt.Errorf("Error waiting for download progress response: %s", err)
 				return
@@ -255,7 +242,7 @@ func (s *Session) PushFile(srcPath, dstName string) error {
 }
 
 func (s *Session) Close() error {
-	close(s.writeC)
+	defer close(s.writeC)
 	return s.SendCommand("\n__espore.finish()\n")
 }
 
@@ -276,7 +263,7 @@ func (s *Session) ensureRuntime() error {
 	if err != nil {
 		return err
 	}
-	installedStr, err := s.AwaitRegex("espore=(true|false)")
+	installedStr, err := s.AwaitRegex("espore=(true|false)$")
 	if err != nil {
 		return errors.New("Error ensuring __espore is installed")
 	}
@@ -301,6 +288,29 @@ end)()
 
 func (s *Session) Read(p []byte) (int, error) {
 	return s.Socket.Read(p)
+}
+
+func (s *Session) ReadLine() (string, error) {
+	b := make([]byte, 1)
+	buf := make([]byte, 0, 1024)
+	for {
+		i, err := s.Read(b)
+		if i > 0 {
+			if b[0] == 13 {
+				continue
+			}
+			if b[0] == 10 {
+				return string(buf), nil
+			}
+			buf = append(buf, b[0])
+		}
+		if err != nil {
+			if err == io.EOF {
+				err = nil
+			}
+			return string(buf), err
+		}
+	}
 }
 
 func (s *Session) Write(p []byte) (int, error) {
