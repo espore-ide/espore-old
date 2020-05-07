@@ -9,7 +9,7 @@ import (
 	"github.com/radovskyb/watcher"
 )
 
-func watch() {
+func watch(config *builder.BuildConfig) {
 	w := watcher.New()
 	w.SetMaxEvents(1)
 
@@ -18,7 +18,7 @@ func watch() {
 			select {
 			case event := <-w.Event:
 				fmt.Println(event) // Print the event's info.
-				builder.Build()
+				builder.Build(config)
 				fmt.Println("done")
 			case err := <-w.Error:
 				log.Fatalln(err)

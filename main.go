@@ -6,7 +6,9 @@ import (
 	"espore/fwserver"
 	"espore/initializer"
 	"espore/session"
+	"espore/utils"
 	"flag"
+	"fmt"
 	"log"
 	"time"
 
@@ -44,6 +46,15 @@ func initFirmware() error {
 	return initializer.Initialize(s)
 }
 
+func readConfig() (*builder.BuildConfig, error) {
+	var config builder.BuildConfig
+	err := utils.ReadJSON("espore.json", &config)
+	if err != nil {
+		return builder.DefaultConfig, fmt.Errorf("Cannot find espore.json in the current directory. Using default configuration")
+	}
+	return &config, nil
+}
+
 func main() {
 	watchFlag := flag.Bool("watch", false, "Watch for changes")
 	initFlag := flag.Bool("initialize", false, "Initialize device")
@@ -51,6 +62,11 @@ func main() {
 	serverFlag := flag.Bool("server", false, "Run the firmware server")
 
 	flag.Parse()
+
+	config, err := readConfig()
+	if err != nil {
+		log.Printf("Error: %s", err)
+	}
 
 	if *serverFlag {
 		fwserver.New(&fwserver.Config{
@@ -66,7 +82,8 @@ func main() {
 		}
 		defer close()
 		c := cli.New(&cli.Config{
-			Session: session,
+			Session:     session,
+			BuildConfig: config,
 		})
 
 		err = c.Run()
@@ -74,7 +91,7 @@ func main() {
 			log.Fatalf("CLI:%s", err)
 		}
 	}
-	err := builder.Build()
+	err = builder.Build(config)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -86,7 +103,7 @@ func main() {
 	}
 
 	if *watchFlag {
-		watch()
+		watch(config)
 		return
 	}
 }

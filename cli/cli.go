@@ -2,6 +2,7 @@ package cli
 
 import (
 	"errors"
+	"espore/builder"
 	"espore/cli/syncer"
 	"espore/session"
 	"fmt"
@@ -14,8 +15,9 @@ import (
 )
 
 type Config struct {
-	Session *session.Session
-	OnQuit  func()
+	Session     *session.Session
+	OnQuit      func()
+	BuildConfig *builder.BuildConfig
 }
 
 type CLI struct {
