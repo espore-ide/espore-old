@@ -4,7 +4,7 @@ import (
 	"io"
 	"log"
 
-	"github.com/rivo/tview"
+	"gitlab.com/tslocum/cview"
 )
 
 type Dumper struct {
@@ -27,7 +27,7 @@ func (d *Dumper) Dump() {
 					log.Fatalf("Error reading socket: %s", err)
 				}
 			} else {
-				d.W.Write([]byte(tview.Escape(string(buffer[:i]))))
+				d.W.Write([]byte(cview.Escape(string(buffer[:i]))))
 			}
 		}
 		close(d.quitC)

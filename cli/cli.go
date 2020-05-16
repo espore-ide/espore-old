@@ -11,7 +11,7 @@ import (
 	"sync"
 
 	"github.com/gdamore/tcell"
-	"github.com/rivo/tview"
+	"gitlab.com/tslocum/cview"
 )
 
 type Config struct {
@@ -23,9 +23,9 @@ type Config struct {
 type CLI struct {
 	Config
 	dumper          *Dumper
-	app             *tview.Application
-	input           *tview.InputField
-	textView        *tview.TextView
+	app             *cview.Application
+	input           *cview.InputField
+	textView        *cview.TextView
 	commandHandlers map[string]*commandHandler
 	syncers         map[string]*syncer.Syncer
 }
@@ -80,29 +80,21 @@ func (c *CLI) Run() error {
 	var historyPos int
 
 	var appError error
-	app := tview.NewApplication()
-	flexbox := tview.NewFlex()
-	input := tview.NewInputField()
+	app := cview.NewApplication()
+	flexbox := cview.NewFlex()
+	input := cview.NewInputField()
 
-	var textView *tview.TextView
-	textView = tview.NewTextView().
+	var textView *cview.TextView
+	textView = cview.NewTextView().
 		SetDynamicColors(true).
 		SetRegions(true).
 		SetWordWrap(true).
+		SetMaxLines(300).
+		SetScrollable(true).
+		ScrollToEnd().
 		SetChangedFunc(func() {
 			app.Draw()
-			if len(textView.GetText(false)) > MAX_TEXT_BUFFER {
-				app.QueueUpdate(func() {
-					text := textView.GetText(false)
-					if len(text) > MAX_TEXT_BUFFER {
-						textView.SetText(text[MAX_TEXT_BUFFER*0.9:])
-						textView.ScrollToEnd()
-					}
-				})
-			}
-		}).
-		SetScrollable(true).
-		ScrollToEnd()
+		})
 
 	textView.SetDoneFunc(func(key tcell.Key) {
 		if key == tcell.KeyTAB {
@@ -112,7 +104,7 @@ func (c *CLI) Run() error {
 	})
 	textView.SetBorder(true)
 
-	flexbox.SetDirection(tview.FlexRow)
+	flexbox.SetDirection(cview.FlexRow)
 	flexbox.AddItem(textView, 0, 1, false)
 	flexbox.AddItem(input, 1, 0, true)
 
