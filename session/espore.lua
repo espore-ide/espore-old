@@ -1,7 +1,3 @@
-package session
-
-const upbin = `
-
 (function()
     local L = {}
     local rprint = print
@@ -194,6 +190,3 @@ const upbin = `
     L.start()
 end)()
 
-
-
-`

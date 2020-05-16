@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"encoding/json"
+	"errors"
 	"espore/builder"
 	"espore/cli/syncer"
 	"espore/initializer"
@@ -15,7 +17,19 @@ type commandHandler struct {
 }
 
 func (c *CLI) ls() error {
-	return c.Session.RunCode(`__espore.ls()`)
+	r, err := c.Session.Rpc(`return file.list()`)
+	if err != nil {
+		return err
+	}
+	var list map[string]int
+	if err := json.Unmarshal(r, &list); err != nil {
+		return errors.New("Error decoding file list")
+	}
+	c.Printf("Files:\n")
+	for name, length := range list {
+		c.Printf("%s\t%d\n", name, length)
+	}
+	return nil
 }
 
 func (c *CLI) unload(packageName string) error {
@@ -32,7 +46,6 @@ func (c *CLI) unload(packageName string) error {
 }
 
 func (c *CLI) push(srcPath, dstPath string) error {
-	c.Printf("Uploading %s to %s ... ", srcPath, dstPath)
 	err := c.Session.PushFile(srcPath, dstPath)
 	if err != nil {
 		c.Printf("Error uploading file: %s\n", err)
@@ -98,6 +111,10 @@ func (c *CLI) cat(path string) error {
 	`, path))
 }
 
+func (c *CLI) install_runtime() error {
+	return c.Session.InstallRuntime()
+}
+
 func (c *CLI) buildCommandHandlers() map[string]*commandHandler {
 	return map[string]*commandHandler{
 		"quit": &commandHandler{
@@ -116,6 +133,12 @@ func (c *CLI) buildCommandHandlers() map[string]*commandHandler {
 			minParameters: 0,
 			handler: func(p []string) error {
 				return initializer.Initialize(c.Session)
+			},
+		},
+		"install-runtime": &commandHandler{
+			minParameters: 0,
+			handler: func(p []string) error {
+				return c.install_runtime()
 			},
 		},
 		"unload": &commandHandler{

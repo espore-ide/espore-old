@@ -1,8 +1,10 @@
 package session
 
 import (
+	"bytes"
 	"crypto/sha1"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -10,6 +12,7 @@ import (
 	"os"
 	"regexp"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -83,6 +86,43 @@ func (s *Session) AwaitRegex(regexSt string) ([]string, error) {
 	}
 	return nil, errors.New("regex not found")
 }
+
+func (s *Session) AwaitStjson() (string, error) {
+	timeout := time.After(time.Second * 10)
+	openBrackets := 0
+	started := false
+
+	sb := strings.Builder{}
+	for {
+		line, err := s.ReadLine()
+		if err != nil {
+			return "", err
+		}
+		switch line {
+		case "{":
+			openBrackets++
+			started = true
+		case "}":
+			openBrackets--
+			fallthrough
+		case ",":
+			timeout = time.After(time.Second * 10)
+		}
+		if started {
+			sb.WriteString(line)
+			sb.WriteByte(10)
+			if openBrackets == 0 {
+				return sb.String(), nil
+			}
+		}
+		select {
+		case <-timeout:
+			return "", errors.New("regex not found")
+		default:
+		}
+	}
+}
+
 func (s *Session) pushRuntime() error {
 	var err error
 	defer func() {
@@ -93,15 +133,42 @@ func (s *Session) pushRuntime() error {
 		}
 	}()
 
-	s.Log.Printf("Pushing espore runtime ...")
-	if err = s.SendCommand(upbin); err != nil {
+	s.Log.Printf("Activating espore ...")
+
+	if err = s.SendCommand("\nrequire('__espore')\n"); err != nil {
 		return err
 	}
 
-	if _, err = s.AwaitRegex("READY$"); err != nil {
+	var r []string
+	if r, err = s.AwaitRegex(`(READY|module '__espore' not found:)$`); err != nil {
 		return errors.New("Pushing runtime failed")
 	}
+
+	if r[1] != "READY" {
+		s.SendCommand("f = file.open('__espore.lua', 'w+')")
+		lines := strings.Split(upbin, "\n")
+		for _, line := range lines {
+			s.SendCommand(fmt.Sprintf("f:write([[%s]] .. '\\n')", line))
+		}
+		s.SendCommand("f:close()\nf=nil")
+
+		if err = s.SendCommand("\nrequire('__espore')\n"); err != nil {
+			return err
+		}
+
+		if r, err = s.AwaitRegex(`(READY|module '__espore' not found:)$`); err != nil {
+			return errors.New("Pushing runtime failed")
+		}
+		if r[1] != "READY" {
+			return errors.New("Error uploading espore runtime")
+		}
+	}
+
 	return nil
+}
+
+func (s *Session) InstallRuntime() error {
+	return s.PushStream(bytes.NewBufferString(upbin), int64(len(upbin)), "__espore.lua")
 }
 
 func (s *Session) startUpload(fname string, size int64) error {
@@ -241,6 +308,33 @@ func (s *Session) PushFile(srcPath, dstName string) error {
 	return s.PushStream(file, info.Size(), dstName)
 }
 
+type RPCResponse struct {
+	RetVal json.RawMessage `json:"ret"`
+	Err    string          `json:"err,omitempty"`
+}
+
+func (s *Session) Rpc(luaCode string) ([]byte, error) {
+	if err := s.ensureRuntime(); err != nil {
+		return nil, err
+	}
+	template := "__espore.call(function()\n%s\nend)"
+	s.RunCode(fmt.Sprintf(template, luaCode))
+	r, err := s.AwaitStjson()
+	if err != nil {
+		return nil, errors.New("Error receiving RPC response")
+	}
+	jsonBytes := []byte(r)
+	var response RPCResponse
+	err = json.Unmarshal(jsonBytes, &response)
+	if err != nil {
+		return nil, errors.New("Error decoding RPC response")
+	}
+	if response.Err != "" {
+		return nil, fmt.Errorf("RPC Error: %s", response.Err)
+	}
+	return response.RetVal, nil
+}
+
 func (s *Session) Close() error {
 	defer close(s.writeC)
 	return s.SendCommand("\n__espore.finish()\n")
@@ -274,10 +368,6 @@ func (s *Session) ensureRuntime() error {
 }
 
 func (s *Session) RunCode(luaCode string) error {
-	if err := s.ensureRuntime(); err != nil {
-		return err
-	}
-
 	return s.SendCommand(fmt.Sprintf(`
 (function ()
 %s
