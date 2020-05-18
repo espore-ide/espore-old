@@ -16,23 +16,40 @@ type commandHandler struct {
 	minParameters int
 }
 
-func (ui *UI) ls() error {
-	r, err := ui.Session.Rpc(`return file.list()`)
+func (ui *UI) Rpc(luaCode string) ([]byte, error) {
+	ui.dumper.Stop()
+	defer ui.dumper.Dump()
+	return ui.Session.Rpc(luaCode)
+}
+
+func (ui *UI) getFileList() (map[string]int, error) {
+	r, err := ui.Rpc(`return file.list()`)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	var list map[string]int
 	if err := json.Unmarshal(r, &list); err != nil {
-		return errors.New("Error decoding file list")
+		return nil, errors.New("Error decoding file list")
+	}
+	return list, nil
+}
+
+func (ui *UI) ls() error {
+	list, err := ui.getFileList()
+	if err != nil {
+		return err
 	}
 	ui.Printf("Files:\n")
 	for name, length := range list {
 		ui.Printf("%s\t%d\n", name, length)
 	}
+	ui.updateFileList(list)
 	return nil
 }
 
 func (ui *UI) unload(packageName string) error {
+	ui.dumper.Stop()
+	defer ui.dumper.Dump()
 	if packageName == "*" {
 		return ui.Session.RunCode(`
 		__espore.unloadAll()
@@ -46,6 +63,8 @@ func (ui *UI) unload(packageName string) error {
 }
 
 func (ui *UI) push(srcPath, dstPath string) error {
+	ui.dumper.Stop()
+	defer ui.dumper.Dump()
 	err := ui.Session.PushFile(srcPath, dstPath)
 	if err != nil {
 		ui.Printf("Error uploading file: %s\n", err)
@@ -98,6 +117,8 @@ func (ui *UI) watch(srcPath, dstPath string) error {
 }
 
 func (ui *UI) cat(path string) error {
+	ui.dumper.Stop()
+	defer ui.dumper.Dump()
 	//TODO: encode somehow so as to avoid the newlines in print()
 	return ui.Session.RunCode(fmt.Sprintf(`
 	local f = file.open("%s", "r")
@@ -112,6 +133,8 @@ func (ui *UI) cat(path string) error {
 }
 
 func (ui *UI) install_runtime() error {
+	ui.dumper.Stop()
+	defer ui.dumper.Dump()
 	return ui.Session.InstallRuntime()
 }
 

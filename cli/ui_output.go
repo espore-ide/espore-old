@@ -18,7 +18,7 @@ func (ui *UI) initOutput() {
 
 	output.SetDoneFunc(func(key tcell.Key) {
 		if key == tcell.KeyTAB {
-			ui.app.SetFocus(ui.input)
+			ui.app.SetFocus(ui.fileBrowser)
 		}
 
 	})

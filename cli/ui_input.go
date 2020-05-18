@@ -55,3 +55,22 @@ func (ui *UI) initInput() {
 		return event
 	})
 }
+
+func (ui *UI) parseCommandLine(cmdline string) error {
+	match := commandRegex.FindStringSubmatch(cmdline)
+	if len(match) > 0 {
+		command := match[1]
+		parameters := strings.Split(match[2], " ")
+		handler := ui.commandHandlers[command]
+		if handler == nil {
+			ui.Printf("Unknown command %q\n", command)
+			return nil
+		}
+		if len(parameters) < handler.minParameters {
+			ui.Printf("Expected at least %d parameters. Got %d\n", handler.minParameters, len(parameters))
+			return nil
+		}
+		return handler.handler(parameters)
+	}
+	return ui.Session.SendCommand(cmdline)
+}
