@@ -1,8 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
-	"errors"
 	"espore/builder"
 	"espore/cli/syncer"
 	"espore/initializer"
@@ -16,34 +14,16 @@ type commandHandler struct {
 	minParameters int
 }
 
-func (ui *UI) Rpc(luaCode string) ([]byte, error) {
-	ui.dumper.Stop()
-	defer ui.dumper.Dump()
-	return ui.Session.Rpc(luaCode)
-}
-
-func (ui *UI) getFileList() (map[string]int, error) {
-	r, err := ui.Rpc(`return file.list()`)
-	if err != nil {
-		return nil, err
-	}
-	var list map[string]int
-	if err := json.Unmarshal(r, &list); err != nil {
-		return nil, errors.New("Error decoding file list")
-	}
-	return list, nil
-}
-
 func (ui *UI) ls() error {
 	list, err := ui.getFileList()
 	if err != nil {
 		return err
 	}
 	ui.Printf("Files:\n")
-	for name, length := range list {
-		ui.Printf("%s\t%d\n", name, length)
+	for _, entry := range list {
+		ui.Printf("%s\t%d\n", entry.name, entry.size)
 	}
-	ui.updateFileList(list)
+	ui.updateFilebrowser(list)
 	return nil
 }
 

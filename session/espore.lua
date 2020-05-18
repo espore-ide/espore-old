@@ -186,6 +186,14 @@
             __espore.unload(packageName)
         end
     end
+
+    L.removeFile = function(fileName)
+        if file.exists(fileName) then
+            file.remove(fileName)
+        else
+            error("File does not exist")
+        end
+    end
     __espore = L
     L.start()
 end)()
