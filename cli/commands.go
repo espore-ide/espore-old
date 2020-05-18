@@ -16,8 +16,8 @@ type commandHandler struct {
 	minParameters int
 }
 
-func (c *CLI) ls() error {
-	r, err := c.Session.Rpc(`return file.list()`)
+func (ui *UI) ls() error {
+	r, err := ui.Session.Rpc(`return file.list()`)
 	if err != nil {
 		return err
 	}
@@ -25,81 +25,81 @@ func (c *CLI) ls() error {
 	if err := json.Unmarshal(r, &list); err != nil {
 		return errors.New("Error decoding file list")
 	}
-	c.Printf("Files:\n")
+	ui.Printf("Files:\n")
 	for name, length := range list {
-		c.Printf("%s\t%d\n", name, length)
+		ui.Printf("%s\t%d\n", name, length)
 	}
 	return nil
 }
 
-func (c *CLI) unload(packageName string) error {
+func (ui *UI) unload(packageName string) error {
 	if packageName == "*" {
-		return c.Session.RunCode(`
+		return ui.Session.RunCode(`
 		__espore.unloadAll()
 		print("\nAll packages unloaded")
 		`)
 	}
-	return c.Session.RunCode(fmt.Sprintf(`
+	return ui.Session.RunCode(fmt.Sprintf(`
 		__espore.unload("%s")
 		print("\nUnloaded %s")
 		`, packageName, packageName))
 }
 
-func (c *CLI) push(srcPath, dstPath string) error {
-	err := c.Session.PushFile(srcPath, dstPath)
+func (ui *UI) push(srcPath, dstPath string) error {
+	err := ui.Session.PushFile(srcPath, dstPath)
 	if err != nil {
-		c.Printf("Error uploading file: %s\n", err)
+		ui.Printf("Error uploading file: %s\n", err)
 	} else {
-		c.Printf("OK\n")
+		ui.Printf("OK\n")
 	}
 	return nil
 }
 
-func (c *CLI) watch(srcPath, dstPath string) error {
+func (ui *UI) watch(srcPath, dstPath string) error {
 	currentDir, err := os.Getwd()
 	if err != nil {
 		return err
 	}
 	srcPath = filepath.Join(currentDir, srcPath)
-	sync := c.syncers[srcPath]
+	sync := ui.syncers[srcPath]
 	if sync != nil {
 		sync.Close()
-		delete(c.syncers, srcPath)
+		delete(ui.syncers, srcPath)
 	}
 
 	sync, err = syncer.New(&syncer.Config{
 		SrcPath: srcPath,
 		OnSync: func(path string) {
-			c.app.QueueUpdate(func() {
+			ui.app.QueueUpdate(func() {
 				relFile, err := filepath.Rel(srcPath, path)
 				if err != nil {
-					c.Printf("[red]Error pushing file: %s\n", err)
+					ui.Printf("[red]Error pushing file: %s\n", err)
 				} else {
 					dstName := filepath.Join(dstPath, relFile)
-					c.dumper.Stop()
-					defer c.dumper.Dump()
-					err = c.Session.PushFile(path, dstName)
+					ui.dumper.Stop()
+					defer ui.dumper.Dump()
+					err = ui.Session.PushFile(path, dstName)
 					if err != nil {
-						c.Printf("[red]Error pushing %s: %s[-:-:-]\n", dstName, err)
+						ui.Printf("[red]Error pushing %s: %s[-:-:-]\n", dstName, err)
 					} else {
-						c.Printf("Pushed %s\n", dstName)
+						ui.Printf("Pushed %s\n", dstName)
 					}
 				}
 			})
 		},
 	})
 	if err != nil {
-		c.Printf("Error setting up sync for %s->%s: %s\n", srcPath, dstPath, err)
+		ui.Printf("Error setting up sync for %s->%s: %s\n", srcPath, dstPath, err)
 	} else {
-		c.Printf("Watching %s for changes\n", srcPath)
+		ui.Printf("Watching %s for changes\n", srcPath)
 	}
 
 	return nil
 }
 
-func (c *CLI) cat(path string) error {
+func (ui *UI) cat(path string) error {
 	//TODO: encode somehow so as to avoid the newlines in print()
-	return c.Session.RunCode(fmt.Sprintf(`
+	return ui.Session.RunCode(fmt.Sprintf(`
 	local f = file.open("%s", "r")
 	if f then
 		local st = f:readline()
@@ -111,11 +111,11 @@ func (c *CLI) cat(path string) error {
 	`, path))
 }
 
-func (c *CLI) install_runtime() error {
-	return c.Session.InstallRuntime()
+func (ui *UI) install_runtime() error {
+	return ui.Session.InstallRuntime()
 }
 
-func (c *CLI) buildCommandHandlers() map[string]*commandHandler {
+func (ui *UI) buildCommandHandlers() map[string]*commandHandler {
 	return map[string]*commandHandler{
 		"quit": &commandHandler{
 			minParameters: 0,
@@ -126,36 +126,36 @@ func (c *CLI) buildCommandHandlers() map[string]*commandHandler {
 		"ls": &commandHandler{
 			minParameters: 0,
 			handler: func(p []string) error {
-				return c.ls()
+				return ui.ls()
 			},
 		},
 		"init": &commandHandler{
 			minParameters: 0,
 			handler: func(p []string) error {
-				return initializer.Initialize(c.Session)
+				return initializer.Initialize(ui.Session)
 			},
 		},
 		"install-runtime": &commandHandler{
 			minParameters: 0,
 			handler: func(p []string) error {
-				return c.install_runtime()
+				return ui.install_runtime()
 			},
 		},
 		"unload": &commandHandler{
 			minParameters: 1,
 			handler: func(p []string) error {
-				return c.unload(p[0])
+				return ui.unload(p[0])
 			},
 		},
 		"push": &commandHandler{
 			minParameters: 2,
 			handler: func(p []string) error {
-				return c.push(p[0], p[1])
+				return ui.push(p[0], p[1])
 			},
 		},
 		"clear": &commandHandler{
 			handler: func(p []string) error {
-				c.textView.SetText("")
+				ui.output.SetText("")
 				return nil
 			},
 		},
@@ -166,25 +166,25 @@ func (c *CLI) buildCommandHandlers() map[string]*commandHandler {
 				if len(p) > 1 {
 					dstPath = p[1]
 				}
-				return c.watch(p[0], dstPath)
+				return ui.watch(p[0], dstPath)
 			},
 		},
 		"cat": &commandHandler{
 			minParameters: 1,
 			handler: func(p []string) error {
-				return c.cat(p[0])
+				return ui.cat(p[0])
 			},
 		},
 		"restart": &commandHandler{
 			handler: func(p []string) error {
-				return c.Session.NodeRestart()
+				return ui.Session.NodeRestart()
 			},
 		},
 		"build": &commandHandler{
 			handler: func(p []string) error {
-				err := builder.Build(c.Config.BuildConfig)
+				err := builder.Build(ui.Config.BuildConfig)
 				if err == nil {
-					c.Printf("Firmware images built.\n")
+					ui.Printf("Firmware images built.\n")
 				}
 				return err
 			},

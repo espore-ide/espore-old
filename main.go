@@ -58,7 +58,7 @@ func readConfig() (*builder.BuildConfig, error) {
 func main() {
 	watchFlag := flag.Bool("watch", false, "Watch for changes")
 	initFlag := flag.Bool("initialize", false, "Initialize device")
-	cliFlag := flag.Bool("cli", false, "Run the CLI")
+	cliFlag := flag.Bool("cli", false, "Run the interactive UI")
 	serverFlag := flag.Bool("server", false, "Run the firmware server")
 
 	flag.Parse()
