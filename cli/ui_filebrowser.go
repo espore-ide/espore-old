@@ -51,12 +51,14 @@ func (ui *UI) initFileBrowser() {
 			selectedCell = nil
 			fb.Select(0, 0)
 			ui.commands <- func() {
+				ui.Printf("Deleting %s ... ", selectedFile)
 				err := ui.removeFile(selectedFile)
 				if err != nil {
-					ui.Printf("Error removing file: %s\n", err)
+					ui.Printf("ERROR: %s\n", err)
 				} else {
 					ui.refreshFilelist()
 				}
+				ui.Printf("OK\n")
 			}
 		}
 		return event
@@ -68,12 +70,14 @@ func (ui *UI) initFileBrowser() {
 
 func (ui *UI) refreshFilelist() {
 	ui.commands <- func() {
+		ui.Printf("Retrieving file list ... ")
 		fileList, err := ui.getFileList()
 		if err != nil {
-			ui.Printf("Error refreshing file list: %s", err)
+			ui.Printf("ERROR: %s\n", err)
 			return
 		}
 		ui.updateFilebrowser(fileList)
+		ui.Printf("OK\n")
 	}
 }
 
@@ -87,4 +91,5 @@ func (ui *UI) updateFilebrowser(list []fileEntry) {
 		r++
 		fb.SetCellSimple(r, 0, entry.name)
 	}
+	ui.app.Draw()
 }

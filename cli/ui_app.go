@@ -64,10 +64,7 @@ func New(config *Config) *UI {
 }
 
 func (ui *UI) Printf(format string, a ...interface{}) {
-	fmt.Fprintf(ui.output, format, a...)
-	/*	c.app.QueueUpdateDraw(func() {
-		fmt.Printf("Q: %s", format)
-	})*/
+	fmt.Fprintf(ui.output, "[yellow]"+format+"[-]", a...)
 }
 
 func (ui *UI) Run() error {

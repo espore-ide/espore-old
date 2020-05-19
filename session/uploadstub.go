@@ -105,6 +105,7 @@ const upbin = `
 
     L.start = function()
         __espore.echo(0)
+        _PROMPT = ""
         print("\nREADY")
     end
 
@@ -112,6 +113,7 @@ const upbin = `
         print("\nBYE")
         __espore.echo(1)
         __espore = nil
+        _PROMPT = "> "
     end
 
     L.rename = function(oldname, newname)
@@ -201,6 +203,8 @@ const upbin = `
     __espore = L
     L.start()
 end)()
+
+
 
 
 

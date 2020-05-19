@@ -101,6 +101,7 @@
 
     L.start = function()
         __espore.echo(0)
+        _PROMPT = ""
         print("\nREADY")
     end
 
@@ -108,6 +109,7 @@
         print("\nBYE")
         __espore.echo(1)
         __espore = nil
+        _PROMPT = "> "
     end
 
     L.rename = function(oldname, newname)
