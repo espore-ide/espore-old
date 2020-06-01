@@ -7,11 +7,12 @@ import (
 	"github.com/gdamore/tcell"
 )
 
-var history []string
-var historyPos int
-
 func (ui *UI) initInput() {
+	var history []string
+	var historyPos int
+
 	input := ui.input
+
 	input.SetDoneFunc(func(key tcell.Key) {
 		switch key {
 		case tcell.KeyTAB:
@@ -29,10 +30,10 @@ func (ui *UI) initInput() {
 				}
 			}
 			lh := len(history)
-			if lh == 0 || (lh > 0 && history[lh-1] != cmd) {
+			if lh == 0 || history[lh-1] != cmd {
 				history = append(history, cmd)
-				historyPos = lh + 1
 			}
+			historyPos = len(history)
 		}
 	})
 
@@ -49,6 +50,7 @@ func (ui *UI) initInput() {
 				historyPos++
 				input.SetText(history[historyPos])
 			} else {
+				historyPos = len(history)
 				input.SetText("")
 			}
 			return nil
