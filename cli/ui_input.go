@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"sort"
 	"strings"
 
 	"github.com/gdamore/tcell"
@@ -53,6 +54,28 @@ func (ui *UI) initInput() {
 			return nil
 		}
 		return event
+	})
+
+	var commands []string
+	for c := range ui.commandHandlers {
+		commands = append(commands, c)
+	}
+	sort.Slice(commands, func(i, j int) bool {
+		return strings.Compare(commands[i], commands[j]) < 0
+	})
+
+	input.SetAutocompleteFunc(func(currentText string) []string {
+		if len(currentText) == 0 {
+			return nil
+		}
+		var entries []string
+		for _, c := range commands {
+			cmd := "/" + c
+			if strings.HasPrefix(cmd, currentText) {
+				entries = append(entries, cmd)
+			}
+		}
+		return entries
 	})
 }
 
