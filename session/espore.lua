@@ -12,6 +12,7 @@
         for _, txt in ipairs(printbuf) do print(txt) end
         printbuf = {}
     end
+    local errorFileDoesNotExist = "File does not exist"
 
     local function is_array(tbl) return tbl[1] ~= nil end
     local function stjson(obj)
@@ -112,16 +113,6 @@
         _PROMPT = "> "
     end
 
-    L.rename = function(oldname, newname)
-        if file.exists(oldname) then
-            file.remove(newname)
-            file.rename(oldname, newname)
-            print("RENAME_OK")
-        else
-            print("RENAME_FAIL")
-        end
-    end
-
     L.upload = function(fname, size)
         local remaining = size
         local f = file.open(fname, "w+")
@@ -193,9 +184,21 @@
         if file.exists(fileName) then
             file.remove(fileName)
         else
-            error("File does not exist")
+            error(errorFileDoesNotExist)
         end
     end
+
+    L.renameFile = function(oldname, newname)
+        if file.exists(oldname) then
+            file.remove(newname)
+            if not file.rename(oldname, newname) then
+                error("Error renaming file")
+            end
+        else
+            error(errorFileDoesNotExist)
+        end
+    end
+
     __espore = L
     L.start()
 end)()
