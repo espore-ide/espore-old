@@ -9,8 +9,9 @@ import (
 	"regexp"
 	"sync"
 
+	"github.com/epiclabs-io/winman"
 	"github.com/gdamore/tcell"
-	"gitlab.com/tslocum/cview"
+	"github.com/rivo/tview"
 )
 
 type Config struct {
@@ -22,13 +23,15 @@ type Config struct {
 type UI struct {
 	Config
 	dumper            *Dumper
-	app               *cview.Application
-	input             *cview.InputField
-	output            *cview.TextView
-	fileBrowser       *cview.Table
+	app               *tview.Application
+	input             *tview.InputField
+	output            *tview.TextView
+	fileBrowser       *tview.Table
 	fileBrowserHidden bool
-	outerFlex         *cview.Flex
-	innerFlex         *cview.Flex
+	outerFlex         *tview.Flex
+	innerFlex         *tview.Flex
+	wm                *winman.Manager
+	mainWnd           *winman.WindowBase
 	commandHandlers   map[string]*commandHandler
 	syncers           map[string]*syncer.Syncer
 	commands          chan func()
@@ -45,12 +48,13 @@ func New(config *Config) *UI {
 		Config:            *config,
 		syncers:           make(map[string]*syncer.Syncer),
 		commands:          make(chan func(), 10),
-		app:               cview.NewApplication(),
-		outerFlex:         cview.NewFlex(),
-		innerFlex:         cview.NewFlex(),
-		output:            cview.NewTextView(),
-		input:             cview.NewInputField(),
-		fileBrowser:       cview.NewTable(),
+		app:               tview.NewApplication(),
+		outerFlex:         tview.NewFlex(),
+		innerFlex:         tview.NewFlex(),
+		output:            tview.NewTextView(),
+		input:             tview.NewInputField(),
+		wm:                winman.NewWindowManager(),
+		fileBrowser:       tview.NewTable(),
 		fileBrowserHidden: false,
 	}
 	ui.commandHandlers = ui.buildCommandHandlers()
@@ -59,6 +63,10 @@ func New(config *Config) *UI {
 		R: ui.Session,
 		W: ui.output,
 	}
+	ui.mainWnd = ui.wm.NewWindow().
+		Show().
+		Maximize().
+		SetBorder(false)
 
 	return ui
 }
@@ -108,7 +116,7 @@ func (ui *UI) Run() error {
 	ui.dumper.Dump()
 	defer ui.dumper.Stop()
 
-	if err := ui.app.SetRoot(ui.outerFlex, true).Run(); err != nil {
+	if err := ui.app.SetRoot(ui.wm, true).EnableMouse(true).Run(); err != nil {
 		panic(err)
 	}
 	close(ui.commands)

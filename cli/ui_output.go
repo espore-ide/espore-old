@@ -8,7 +8,7 @@ func (ui *UI) initOutput() {
 		SetDynamicColors(true).
 		SetRegions(true).
 		SetWordWrap(true).
-		SetMaxLines(300).
+		//SetMaxLines(300).
 		SetScrollable(true).
 		ScrollToEnd().SetBorder(true)
 
