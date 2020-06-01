@@ -185,7 +185,7 @@ func (ui *UI) buildCommandHandlers() map[string]*commandHandler {
 		},
 		"build": &commandHandler{
 			handler: func(p []string) error {
-				err := builder.Build(ui.Config.BuildConfig)
+				err := builder.Build(&ui.Config.EsporeConfig.Build)
 				if err == nil {
 					ui.Printf("Firmware images built.\n")
 				}

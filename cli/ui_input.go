@@ -8,9 +8,6 @@ import (
 )
 
 func (ui *UI) initInput() {
-	var history []string
-	var historyPos int
-
 	input := ui.input
 
 	input.SetDoneFunc(func(key tcell.Key) {
@@ -29,30 +26,17 @@ func (ui *UI) initInput() {
 					ui.Printf("Error executing command: %s", err)
 				}
 			}
-			lh := len(history)
-			if lh == 0 || history[lh-1] != cmd {
-				history = append(history, cmd)
-			}
-			historyPos = len(history)
+			ui.History.Append(cmd)
 		}
 	})
 
 	input.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		switch event.Key() {
 		case tcell.KeyUp:
-			if historyPos > 0 {
-				historyPos--
-				input.SetText(history[historyPos])
-			}
+			input.SetText(ui.History.Up())
 			return nil
 		case tcell.KeyDown:
-			if historyPos < len(history)-1 {
-				historyPos++
-				input.SetText(history[historyPos])
-			} else {
-				historyPos = len(history)
-				input.SetText("")
-			}
+			input.SetText(ui.History.Down())
 			return nil
 		}
 		return event

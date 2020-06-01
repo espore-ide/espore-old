@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"espore/config"
 	"espore/utils"
 	"fmt"
 	"io"
@@ -18,16 +19,6 @@ import (
 
 	"github.com/gobwas/glob"
 )
-
-type BuildConfig struct {
-	Libs    []string `json:"libs"`
-	Devices []string `json:"devices"`
-	Output  string   `json:"output"`
-}
-
-var DefaultConfig = &BuildConfig{
-	Output: "dist",
-}
 
 type DeviceInfo struct {
 	Name string `json:"name"`
@@ -397,7 +388,7 @@ func writeFirmwareImage(manifest *FirmwareManifest2, outputDir string) error {
 	return err
 }
 
-func Build(config *BuildConfig) error {
+func Build(config *config.BuildConfig) error {
 	if err := utils.RemoveDirContents(config.Output); err != nil {
 		return fmt.Errorf("cannot remove output dir contents: %s", err)
 	}

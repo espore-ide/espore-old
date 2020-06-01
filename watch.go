@@ -2,6 +2,7 @@ package main
 
 import (
 	"espore/builder"
+	"espore/config"
 	"fmt"
 	"log"
 	"time"
@@ -9,7 +10,7 @@ import (
 	"github.com/radovskyb/watcher"
 )
 
-func watch(config *builder.BuildConfig) {
+func watch(config *config.EsporeConfig) {
 	w := watcher.New()
 	w.SetMaxEvents(1)
 
@@ -18,7 +19,7 @@ func watch(config *builder.BuildConfig) {
 			select {
 			case event := <-w.Event:
 				fmt.Println(event) // Print the event's info.
-				builder.Build(config)
+				builder.Build(&config.Build)
 				fmt.Println("done")
 			case err := <-w.Error:
 				log.Fatalln(err)

@@ -1,15 +1,20 @@
 package main
 
 import (
+	"bytes"
 	"espore/builder"
 	"espore/cli"
+	"espore/cli/history"
+	"espore/config"
 	"espore/fwserver"
 	"espore/initializer"
 	"espore/session"
-	"espore/utils"
 	"flag"
 	"fmt"
+	"io"
 	"log"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/tarm/serial"
@@ -46,13 +51,29 @@ func initFirmware() error {
 	return initializer.Initialize(s)
 }
 
-func readConfig() (*builder.BuildConfig, error) {
-	var config builder.BuildConfig
-	err := utils.ReadJSON("espore.json", &config)
+func buildHistory(fileName string) (*history.History, error) {
+	var r io.Reader
+	f, err := os.Open(fileName)
 	if err != nil {
-		return builder.DefaultConfig, fmt.Errorf("Cannot find espore.json in the current directory. Using default configuration")
+		r = bytes.NewBufferString("")
+	} else {
+		r = f
 	}
-	return &config, nil
+
+	return history.New(r, &history.Config{
+		Limit: 100,
+		OnAppend: func(line string) {
+			f, err := os.OpenFile(fileName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			if err != nil {
+				return
+			}
+			defer f.Close()
+			_, err = fmt.Fprintln(f, line)
+			if err != nil {
+				fmt.Println(err)
+			}
+		},
+	})
 }
 
 func main() {
@@ -63,10 +84,13 @@ func main() {
 
 	flag.Parse()
 
-	config, err := readConfig()
+	config, err := config.Read()
 	if err != nil {
 		log.Printf("Error: %s", err)
 	}
+
+	dataDir := config.GetDataDir()
+	os.MkdirAll(dataDir, 0755)
 
 	if *serverFlag {
 		fwserver.New(&fwserver.Config{
@@ -81,9 +105,17 @@ func main() {
 			log.Fatalf("Error opening session over serial: %s", err)
 		}
 		defer close()
+
+		historyFileName := filepath.Join(dataDir, "history.txt")
+		history, err := buildHistory(historyFileName)
+		if err != nil {
+			log.Fatalf("Error reading history: %s", err)
+		}
+
 		c := cli.New(&cli.Config{
-			Session:     session,
-			BuildConfig: config,
+			Session:      session,
+			EsporeConfig: config,
+			History:      history,
 		})
 
 		err = c.Run()
@@ -91,7 +123,7 @@ func main() {
 			log.Fatalf("CLI:%s", err)
 		}
 	}
-	err = builder.Build(config)
+	err = builder.Build(&config.Build)
 	if err != nil {
 		log.Fatal(err)
 	}
