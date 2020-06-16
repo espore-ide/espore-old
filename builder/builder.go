@@ -390,14 +390,13 @@ func writeFirmwareImage(manifest *FirmwareManifest2, outputDir string) error {
 
 func Build(config *config.BuildConfig) error {
 	if err := utils.RemoveDirContents(config.Output); err != nil {
-		return fmt.Errorf("cannot remove output dir contents: %s", err)
+		return fmt.Errorf("cannot remove output dir (%s) contents: %s", config.Output, err)
 	}
 
 	roots := make(map[string]FirmwareRoot)
 
 	for _, libDef := range config.Libs {
 		libs, _ := filepath.Glob(libDef)
-		fmt.Println(libDef, libs)
 		for _, lib := range libs {
 			fi, err := os.Stat(lib)
 			if err != nil {
@@ -432,7 +431,7 @@ func Build(config *config.BuildConfig) error {
 					return err
 				}
 				if err := writeFirmwareImage(manifest, config.Output); err != nil {
-					return err
+					return fmt.Errorf("Error writing firmware image for %s: %s", devicePath, err)
 				}
 
 			}
