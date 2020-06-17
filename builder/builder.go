@@ -41,10 +41,10 @@ type FileEntry struct {
 }
 
 type LibDef struct {
-	Name     string   `json:"name"`
-	Include  []string `json:"include"`
-	BasePath string
+	Include []string `json:"include"`
+	Exclude []string `json:"exclude`
 }
+
 type ModuleDef struct {
 	Name      string          `json:"name"`
 	Autostart bool            `json:"autostart"`
@@ -54,7 +54,7 @@ type ModuleDef struct {
 type FirmwareDef struct {
 	DeviceInfo
 	NodeMCUFirmware string   `json:"nodemcu-firmware"`
-	Libs            []LibDef `json:"libs"`
+	Libs            []string `json:"libs"`
 }
 
 type FirmwareManifest2 struct {
@@ -108,9 +108,34 @@ func AddRoot(path string, roots map[string]FirmwareRoot) error {
 	if err != nil {
 		return err
 	}
+
+	var libDef LibDef
+	libDefPath := filepath.Join(path, "libdef.json")
+	utils.ReadJSON(libDefPath, &libDef)
+	if len(libDef.Include) == 0 {
+		libDef.Include = []string{"*"}
+	}
+	var includes []glob.Glob
+	var excludes []glob.Glob
+
+	for _, i := range libDef.Include {
+		g, err := glob.Compile(i, '/')
+		if err != nil {
+			return fmt.Errorf("Error parsing include glob in %s", libDefPath)
+		}
+		includes = append(includes, g)
+	}
+	for _, e := range libDef.Exclude {
+		g, err := glob.Compile(e, '/')
+		if err != nil {
+			return fmt.Errorf("Error parsing exclude glob in %s", libDefPath)
+		}
+		excludes = append(excludes, g)
+	}
+
 	entries := make(map[string]*FileEntry)
 	for _, f := range list {
-		if f == "modules.json" {
+		if f == "modules.json" || f == "libdef.json" {
 			continue
 		}
 		var entry FileEntry
@@ -121,15 +146,32 @@ func AddRoot(path string, roots map[string]FirmwareRoot) error {
 		if err != nil {
 			return err
 		}
+		var add bool
 		if filepath.Ext(f) == ".lua" {
+			add = true
 			deps, datafiles, err := ReadDependenciesAndDatafiles(fpath)
 			if err != nil {
 				return err
 			}
 			entry.Dependencies = deps
 			entry.Datafiles = datafiles
+		} else {
+			for _, ig := range includes {
+				if ig.Match(f) {
+					add = true
+					break
+				}
+			}
+			for _, eg := range excludes {
+				if eg.Match(f) {
+					add = false
+					break
+				}
+			}
 		}
-		entries[entry.Path] = &entry
+		if add {
+			entries[entry.Path] = &entry
+		}
 	}
 	var modules []ModuleDef
 	utils.ReadJSON(filepath.Join(path, "modules.json"), &modules)
@@ -142,16 +184,16 @@ func AddRoot(path string, roots map[string]FirmwareRoot) error {
 	return nil
 }
 
-func getDeviceFirmwareRoots(allRoots map[string]FirmwareRoot, libs []LibDef) ([]FirmwareRoot, error) {
+func getDeviceFirmwareRoots(allRoots map[string]FirmwareRoot, libs []string) ([]FirmwareRoot, error) {
 	var roots []FirmwareRoot
-	for _, libDef := range libs {
+	for _, lib := range libs {
 		var ok bool
 		var root FirmwareRoot
-		root, ok = allRoots[libDef.Name]
+		root, ok = allRoots[lib]
 		if ok {
 			roots = append(roots, root)
 		} else {
-			return nil, fmt.Errorf("Cannot find library with name '%s'", libDef.Name)
+			return nil, fmt.Errorf("Cannot find library with name '%s'", lib)
 		}
 	}
 	return roots, nil
@@ -191,24 +233,17 @@ func AddFilesFromModule(moduleName string, roots []FirmwareRoot, fileMap map[str
 	return nil
 }
 
-func AddOtherFiles(allRoots map[string]FirmwareRoot, libs []LibDef, fileMap map[string]*FileEntry) error {
+func AddOtherFiles(allRoots map[string]FirmwareRoot, libs []string, fileMap map[string]*FileEntry) error {
 	for _, lib := range libs {
-		for _, pattern := range lib.Include {
-			g, err := glob.Compile(pattern, '/')
-			if err != nil {
-				return fmt.Errorf("Error in glob expression, library %s: %s", lib.Name, err)
-			}
-			var ok bool
-			var libRoot FirmwareRoot
-			libRoot, ok = allRoots[lib.Name]
-			if ok {
-				for path, entry := range libRoot.Files {
-					if g.Match(path) {
-						fileMap[path] = entry
-					}
-				}
-			} else {
-				return fmt.Errorf("Cannot find library %s", lib.Name)
+		var ok bool
+		var libRoot FirmwareRoot
+		libRoot, ok = allRoots[lib]
+		if !ok {
+			return fmt.Errorf("Cannot find library %s", lib)
+		}
+		for path, entry := range libRoot.Files {
+			if filepath.Ext(path) != ".lua" {
+				fileMap[path] = entry
 			}
 		}
 	}
@@ -395,8 +430,8 @@ func Build(config *config.BuildConfig) error {
 
 	roots := make(map[string]FirmwareRoot)
 
-	for _, libDef := range config.Libs {
-		libs, _ := filepath.Glob(libDef)
+	for _, lib := range config.Libs {
+		libs, _ := filepath.Glob(lib)
 		for _, lib := range libs {
 			fi, err := os.Stat(lib)
 			if err != nil {
