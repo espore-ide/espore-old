@@ -135,7 +135,9 @@ func (ui *UI) buildCommandHandlers() map[string]*commandHandler {
 		"init": &commandHandler{
 			minParameters: 0,
 			handler: func(p []string) error {
-				return initializer.Initialize(ui.Session)
+				ui.dumper.Stop()
+				defer ui.dumper.Dump()
+				return initializer.Initialize(ui.EsporeConfig.Build.Output, ui.Session)
 			},
 		},
 		"install-runtime": &commandHandler{

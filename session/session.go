@@ -183,15 +183,8 @@ func (s *Session) NodeRestart() error {
 }
 
 func (s *Session) RenameFile(oldName, newName string) error {
-	s.RunCode(fmt.Sprintf("__espore.rename(%q, %q)", oldName, newName))
-	r, err := s.AwaitRegex("RENAME_(OK|FAIL)")
-	if err != nil {
-		return errors.New("Error waiting for rename file operation")
-	}
-	if r[1] != "OK" {
-		return errors.New("Rename operation failed")
-	}
-	return nil
+	_, err := s.Rpc(fmt.Sprintf("__espore.renameFile('%s', '%s')", oldName, newName))
+	return err
 }
 
 func (s *Session) PushStream(reader io.Reader, size int64, dstName string) error {

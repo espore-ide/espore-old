@@ -41,14 +41,14 @@ func getSerialSession() (s *session.Session, close func(), err error) {
 
 }
 
-func initFirmware() error {
+func initFirmware(outputDir string) error {
 	s, close, err := getSerialSession()
 	if err != nil {
 		return err
 	}
 
 	defer close()
-	return initializer.Initialize(s)
+	return initializer.Initialize(outputDir, s)
 }
 
 func buildHistory(fileName string) (*history.History, error) {
@@ -129,7 +129,7 @@ func main() {
 	}
 
 	if *initFlag {
-		if err := initFirmware(); err != nil {
+		if err := initFirmware(config.Build.Output); err != nil {
 			log.Fatal(err)
 		}
 	}

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"espore/builder"
 	"espore/session"
@@ -34,23 +35,21 @@ func Initialize_old(session *session.Session) error {
 	return nil
 }
 
-func Initialize(session *session.Session) error {
-
+func Initialize(outputDir string, session *session.Session) error {
 	chipID, err := session.GetChipID()
 	if err != nil {
 		return err
 	}
 
-	fwFile := filepath.Join("dist", fmt.Sprintf("%s.img", chipID))
+	fwFile := filepath.Join(outputDir, fmt.Sprintf("%s.img", chipID))
 	if _, err = os.Stat(fwFile); err != nil {
-		fwFile = filepath.Join("dist", "DEFAULT.img")
+		fwFile = filepath.Join(outputDir, "DEFAULT.img")
 	}
-
 	err = session.PushFile(fwFile, "update.img")
 	if err != nil {
 		return err
 	}
-	err = session.PushFile("bootloader/init.lua", "init.lua")
+	err = session.PushStream(strings.NewReader(initLua), int64(len(initLua)), "init.lua")
 	if err != nil {
 		return err
 	}

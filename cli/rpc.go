@@ -46,6 +46,7 @@ func (ui *UI) removeFile(fileName string) error {
 }
 
 func (ui *UI) renameFile(oldName, newName string) error {
-	_, err := ui.Rpc(fmt.Sprintf("__espore.renameFile('%s', '%s')", oldName, newName))
-	return err
+	return ui.dumper.Pause(func() error {
+		return ui.Session.RenameFile(oldName, newName)
+	})
 }
