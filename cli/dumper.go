@@ -35,13 +35,7 @@ func (d *Dumper) Dump() {
 
 }
 
-func (d *Dumper) Stop() {
+func (d *Dumper) Close() {
 	d.dumping = false
 	<-d.quitC
-}
-
-func (d *Dumper) Pause(f func() error) error {
-	d.Stop()
-	defer d.Dump()
-	return f()
 }

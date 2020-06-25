@@ -116,7 +116,7 @@ func (ui *UI) Run() error {
 	})
 
 	ui.dumper.Dump()
-	defer ui.dumper.Stop()
+	defer ui.dumper.Close()
 
 	if err := ui.app.SetRoot(ui.wm, true).EnableMouse(true).Run(); err != nil {
 		panic(err)

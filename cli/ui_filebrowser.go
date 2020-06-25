@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"espore/session/fileman"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -61,7 +62,7 @@ func (ui *UI) initFileBrowser() {
 			fb.Select(0, 0)
 			ui.commands <- func() {
 				ui.Printf("Deleting %s ... ", selectedFile)
-				err := ui.removeFile(selectedFile)
+				err := ui.Session.File.Remove(selectedFile)
 				if err != nil {
 					ui.Printf("ERROR: %s\n", err)
 					return
@@ -79,7 +80,7 @@ func (ui *UI) initFileBrowser() {
 				}
 				ui.commands <- func() {
 					ui.Printf("Renaming %s to %s ...", selectedFile, newName)
-					err := ui.renameFile(selectedFile, newName)
+					err := ui.Session.File.Rename(selectedFile, newName)
 					if err != nil {
 						ui.Printf("ERROR: %s\n", err)
 						return
@@ -102,7 +103,7 @@ func (ui *UI) initFileBrowser() {
 func (ui *UI) refreshFilelist() {
 	ui.commands <- func() {
 		ui.Printf("Retrieving file list ... ")
-		fileList, err := ui.getFileList()
+		fileList, err := ui.Session.File.List()
 		if err != nil {
 			ui.Printf("ERROR: %s\n", err)
 			return
@@ -112,7 +113,7 @@ func (ui *UI) refreshFilelist() {
 	}
 }
 
-func (ui *UI) updateFilebrowser(list []fileEntry) {
+func (ui *UI) updateFilebrowser(list []fileman.FileEntry) {
 	fb := ui.fileBrowser
 	for fb.GetRowCount() > 1 {
 		fb.RemoveRow(1)
@@ -120,7 +121,7 @@ func (ui *UI) updateFilebrowser(list []fileEntry) {
 	r := 0
 	for _, entry := range list {
 		r++
-		fb.SetCellSimple(r, 0, entry.name)
+		fb.SetCellSimple(r, 0, entry.Name)
 	}
 	ui.app.Draw()
 }

@@ -15,21 +15,19 @@ type commandHandler struct {
 }
 
 func (ui *UI) ls() error {
-	list, err := ui.getFileList()
+	list, err := ui.Session.File.List()
 	if err != nil {
 		return err
 	}
 	ui.Printf("Files:\n")
 	for _, entry := range list {
-		ui.Printf("%s\t%d\n", entry.name, entry.size)
+		ui.Printf("%s\t%d\n", entry.Name, entry.Size)
 	}
 	ui.updateFilebrowser(list)
 	return nil
 }
 
 func (ui *UI) unload(packageName string) error {
-	ui.dumper.Stop()
-	defer ui.dumper.Dump()
 	if packageName == "*" {
 		return ui.Session.RunCode(`
 		__espore.unloadAll()
@@ -43,8 +41,6 @@ func (ui *UI) unload(packageName string) error {
 }
 
 func (ui *UI) push(srcPath, dstPath string) error {
-	ui.dumper.Stop()
-	defer ui.dumper.Dump()
 	err := ui.Session.PushFile(srcPath, dstPath)
 	if err != nil {
 		ui.Printf("Error uploading file: %s\n", err)
@@ -75,8 +71,7 @@ func (ui *UI) watch(srcPath, dstPath string) error {
 					ui.Printf("[red]Error pushing file: %s\n", err)
 				} else {
 					dstName := filepath.Join(dstPath, relFile)
-					ui.dumper.Stop()
-					defer ui.dumper.Dump()
+
 					err = ui.Session.PushFile(path, dstName)
 					if err != nil {
 						ui.Printf("[red]Error pushing %s: %s[-:-:-]\n", dstName, err)
@@ -97,8 +92,6 @@ func (ui *UI) watch(srcPath, dstPath string) error {
 }
 
 func (ui *UI) cat(path string) error {
-	ui.dumper.Stop()
-	defer ui.dumper.Dump()
 	//TODO: encode somehow so as to avoid the newlines in print()
 	return ui.Session.RunCode(fmt.Sprintf(`
 	local f = file.open("%s", "r")
@@ -113,8 +106,6 @@ func (ui *UI) cat(path string) error {
 }
 
 func (ui *UI) install_runtime() error {
-	ui.dumper.Stop()
-	defer ui.dumper.Dump()
 	return ui.Session.InstallRuntime()
 }
 
@@ -135,8 +126,6 @@ func (ui *UI) buildCommandHandlers() map[string]*commandHandler {
 		"init": &commandHandler{
 			minParameters: 0,
 			handler: func(p []string) error {
-				ui.dumper.Stop()
-				defer ui.dumper.Dump()
 				return initializer.Initialize(ui.EsporeConfig.Build.Output, ui.Session)
 			},
 		},
