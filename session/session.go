@@ -81,7 +81,7 @@ func (s *Session) pushRuntime(socket io.Reader) error {
 	}
 
 	var r []string
-	if r, err = AwaitRegex(socket, `(READY|module '__espore' not found:)$`); err != nil {
+	if r, err = awaitRegex(socket, `(READY|module '__espore' not found:)$`); err != nil {
 		return errors.New("Pushing runtime failed")
 	}
 
@@ -97,7 +97,7 @@ func (s *Session) pushRuntime(socket io.Reader) error {
 			return err
 		}
 
-		if r, err = AwaitRegex(socket, `(READY|module '__espore' not found:)$`); err != nil {
+		if r, err = awaitRegex(socket, `(READY|module '__espore' not found:)$`); err != nil {
 			return errors.New("Pushing runtime failed")
 		}
 		if r[1] != "READY" {
@@ -124,8 +124,8 @@ func (s *Session) NodeRestart() error {
 }
 
 func (s *Session) PushStream(reader io.Reader, size int64, dstName string) error {
-	return s.LockReader.Lock(func(socket io.Reader) error {
-		const tmpfile = "__upload.tmp"
+	const tmpfile = "__upload.tmp"
+	err := s.LockReader.Lock(func(socket io.Reader) error {
 		if err := s.ensureRuntime(socket); err != nil {
 			return err
 		}
@@ -136,7 +136,7 @@ func (s *Session) PushStream(reader io.Reader, size int64, dstName string) error
 			return err
 		}
 
-		if _, err := AwaitRegex(socket, "BEGIN"); err != nil {
+		if _, err := awaitRegex(socket, "BEGIN"); err != nil {
 			return errors.New("Error waiting for upload BEGIN signal")
 		}
 
@@ -191,7 +191,7 @@ func (s *Session) PushStream(reader io.Reader, size int64, dstName string) error
 			var received = int64(0)
 			for received < size {
 				rc <- received
-				st, err := AwaitRegex(socket, `(\d+)$`)
+				st, err := awaitRegex(socket, `(\d+)$`)
 				if err != nil {
 					recvErr = fmt.Errorf("Error waiting for download progress response: %s", err)
 					return
@@ -210,20 +210,24 @@ func (s *Session) PushStream(reader io.Reader, size int64, dstName string) error
 		if recvErr != nil {
 			return fmt.Errorf("Error receiving file: %s", recvErr)
 		}
-		m, err := AwaitRegex(socket, "([0-9a-fA-F]{40})")
+		m, err := awaitRegex(socket, "([0-9a-fA-F]{40})")
 		if err != nil {
 			return errors.New("Error waiting for file checksum hash")
 		}
 		if m[1] != hash {
 			return fmt.Errorf("Checksum hash mismatch. Expected %s, got %s", hash, m[1])
 		}
-		if err := s.File.Rename(tmpfile, dstName); err != nil {
-			s.Log.Printf("ERROR\n")
-			return err
-		}
-		s.Log.Printf("OK\n")
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	if err := s.File.Rename(tmpfile, dstName); err != nil {
+		s.Log.Printf("ERROR\n")
+		return err
+	}
+	s.Log.Printf("OK\n")
+	return nil
 }
 
 func (s *Session) PushFile(srcPath, dstName string) error {
@@ -283,7 +287,7 @@ func (s *Session) GetChipID() (string, error) {
 			return err
 		}
 
-		match, err := AwaitRegex(reader, "id=(.*)")
+		match, err := awaitRegex(reader, "id=(.*)")
 		if err != nil {
 			return err
 		}
@@ -298,7 +302,7 @@ func (s *Session) ensureRuntime(reader io.Reader) error {
 	if err != nil {
 		return err
 	}
-	installedStr, err := AwaitRegex(reader, "espore=(true|false)$")
+	installedStr, err := awaitRegex(reader, "espore=(true|false)$")
 	if err != nil {
 		return errors.New("Error ensuring __espore is installed")
 	}
@@ -340,7 +344,7 @@ func ReadLine(r io.Reader) (string, error) {
 	}
 }
 
-func AwaitRegex(reader io.Reader, regexSt string) ([]string, error) {
+func awaitRegex(reader io.Reader, regexSt string) ([]string, error) {
 	timeout := time.After(time.Second * 10)
 	r := regexp.MustCompile(regexSt)
 
