@@ -1,13 +1,24 @@
 print("\n\n\nEspore bootloader will launch in 3 seconds.")
-print("Set main to nil to stop\n\n\n")
+print("Set boot to nil to stop\n\n\n")
 
-function main()
+function runMain()
+    runMain = nil
+    local ok, mainFunc = pcall(require, "main")
+    if not ok then print("Error loading main module: ", modFunc) end
+    if type(mainFunc) == "function" then
+        local ok, err = pcall(mainFunc)
+        if not ok then print("Error invoking main function: ", err) end
+    end
+end
+
+function boot()
     local M = {
         FIRMWARE_ACCEPT_TIMEOUT = 20000,
         UPDATE_NEW_FILE = "update.img",
         UPDATE_TMP_FILE = "update.img.tmp",
         UPDATE_OLD_FILE = "update.old",
-        PROGRAM = "init2.lua",
+        LFS_NEW_FILE = "lfs.img",
+        LFS_TMP_FILE = "lfs.img.tmp",
         DATAFILES_JSON = "datafiles.json"
     }
 
@@ -139,6 +150,18 @@ function main()
         end
     end
 
+    M.flashLFS = function()
+        if node.flashindex and file.exists(M.LFS_NEW_FILE) then
+            print("Found LFS image. Flashing ...")
+            file.remove(M.LFS_TMP_FILE)
+            file.rename(M.LFS_NEW_FILE, M.LFS_TMP_FILE)
+            collectgarbage()
+            local err = node.flashreload(M.LFS_TMP_FILE)
+            print("Error flashing LFS image: " .. err)
+            return err
+        end
+    end
+
     M.restorePreviousVersion = function()
         M.log_info("Attempting to restore previous firmware version...")
         fileList, err = M.unpackImage(M.UPDATE_OLD_FILE)
@@ -150,11 +173,13 @@ function main()
         end
         M.log_info(
             "Restarting after failed update and restoring previous version")
+        M.flashLFS()
         M.restart()
     end
 
     M.start = function()
         if file.exists(M.UPDATE_TMP_FILE) then
+            file.remove(M.LFS_TMP_FILE)
             M.log_info("Starting new firmware for the first time...")
             M.log_info(
                 "Set __FIRMWARE_ACCEPT to true within %d seconds to accept it",
@@ -187,6 +212,10 @@ function main()
                     return
                 end
                 M.cleanup(fileList)
+                if M.flashLFS() ~= nil then
+                    M.restorePreviousVersion()
+                    return
+                end
                 M.log_info(
                     "new firmware was unpacked successfully. Restarting...")
                 M.restart()
@@ -194,20 +223,23 @@ function main()
             end
         end
 
-        if file.exists(M.PROGRAM) then
-            M.log_info("Bootloader finished. Launching application...")
-            dofile(M.PROGRAM)
-        else
-            M.log_error("Cannot find %s. Halt.", M.PROGRAM)
+        if node.flashindex then
+            local ok, err = pcall(node.flashindex("__lfsinit"))
+            if not ok then
+                M.log_error("Error loading LFS modules: %s", err)
+            else
+                M.log_info("LFS initialized")
+            end
         end
+        tmr.create():alarm(1, tmr.ALARM_SINGLE, runMain)
     end
-
     M.start()
 end
 
 tmr.create():alarm(3000, tmr.ALARM_SINGLE, function()
-    if main ~= nil then
-        main()
-        main = nil
+    if boot ~= nil then
+        boot()
+        boot = nil
+        collectgarbage()
     end
 end)

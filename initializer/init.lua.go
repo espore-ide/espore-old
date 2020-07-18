@@ -2,24 +2,31 @@ package initializer
 
 const initLua = `
 print("\n\n\nEspore bootloader will launch in 3 seconds.")
-print("Set main to nil to stop\n\n\n")
+print("Set boot to nil to stop\n\n\n")
 
-function main()
+function runMain()
+    runMain = nil
+    local ok, mainFunc = pcall(require, "main")
+    if not ok then print("Error loading main module: ", modFunc) end
+    if type(mainFunc) == "function" then
+        local ok, err = pcall(mainFunc)
+        if not ok then print("Error invoking main function: ", err) end
+    end
+end
+
+function boot()
     local M = {
         FIRMWARE_ACCEPT_TIMEOUT = 20000,
         UPDATE_NEW_FILE = "update.img",
         UPDATE_TMP_FILE = "update.img.tmp",
         UPDATE_OLD_FILE = "update.old",
-        PROGRAM = "init2.lua",
+        LFS_NEW_FILE = "lfs.img",
+        LFS_TMP_FILE = "lfs.img.tmp",
         DATAFILES_JSON = "datafiles.json"
     }
 
     M.log = function(level, f, a)
-        for i = 1, a.n do
-            if a[i] == nil then
-                a[i] = "<nil>"
-            end
-        end
+        for i = 1, a.n do if a[i] == nil then a[i] = "<nil>" end end
         local st = string.format("[ " .. level .. " ] (boot) " .. f, unpack(a))
         print(st)
         return st
@@ -37,9 +44,7 @@ function main()
 
     M.readJSON = function(fileName)
         local f = file.open(fileName, "r")
-        if not f then
-            return nil
-        end
+        if not f then return nil end
         local data = ""
         while true do
             local chunk = f:read()
@@ -51,21 +56,15 @@ function main()
         end
         f:close()
         local ok, obj = pcall(sjson.decode, data)
-        if not ok then
-            obj = nil
-        end
+        if not ok then obj = nil end
         return obj
     end
 
     M.restart = function()
         M.log_info("Restarting in 5 seconds ...")
-        tmr.create():alarm(
-            5000,
-            tmr.ALARM_SINGLE,
-            function()
-                node.restart()
-            end
-        )
+        tmr.create():alarm(5000, tmr.ALARM_SINGLE, function()
+            node.restart()
+        end)
     end
 
     M.unpackImage = function(filename)
@@ -76,18 +75,17 @@ function main()
         end
 
         local totalFiles = nil
-        --skip other headers. TODO: check these headers for validity
+        -- skip other headers. TODO: check these headers for validity
         repeat
             line = f:readline()
             if line ~= nil then
                 if totalFiles == nil then
-                    totalFiles = tonumber(string.match(line, "Total files:%s*(%d*)\n"))
+                    totalFiles = tonumber(
+                                     string.match(line, "Total files:%s*(%d*)\n"))
                 end
             end
         until (line == "\n" or line == nil)
-        if line == nil then
-            return nil, "Cannot find image file body"
-        end
+        if line == nil then return nil, "Cannot find image file body" end
         if totalFiles == nil then
             return nil, "Cannot find Total Files header in firmware image"
         end
@@ -104,20 +102,17 @@ function main()
             end
             table.insert(fileList, targetFile)
             local size = f:readline()
-            if size == nil then
-                return nil, "cannot read file size"
-            end
+            if size == nil then return nil, "cannot read file size" end
             size = string.match(size, "([0-9]+)\n")
             size = tonumber(size)
-            if size == nil then
-                return nil, "cannot parse file size"
-            end
+            if size == nil then return nil, "cannot parse file size" end
             M.log_info("unpacking %s. Size: %d", targetFile, size)
             local data
             local len
             local tf = file.open(targetFile, "w+")
             if tf == nil then
-                return nil, "Error opening targetFile " .. targetFile .. " for writing"
+                return nil, "Error opening targetFile " .. targetFile ..
+                           " for writing"
             end
             repeat
                 data = f:read(math.min(size, 1024))
@@ -134,10 +129,8 @@ function main()
             tf:close()
             if size > 0 then
                 return nil, string.format(
-                    "Firmware file is corrupt, went past end of file unpacking %s (size=%d)",
-                    targetFile,
-                    size
-                )
+                           "Firmware file is corrupt, went past end of file unpacking %s (size=%d)",
+                           targetFile, size)
             end
             totalFiles = totalFiles - 1
         end
@@ -148,12 +141,8 @@ function main()
     M.cleanup = function(fileList)
         local datafiles = M.readJSON(M.DATAFILES_JSON) or {}
         local list = file.list()
-        for _, name in ipairs(datafiles) do
-            list[name] = nil
-        end
-        for _, name in ipairs(fileList) do
-            list[name] = nil
-        end
+        for _, name in ipairs(datafiles) do list[name] = nil end
+        for _, name in ipairs(fileList) do list[name] = nil end
         list[M.UPDATE_NEW_FILE] = nil
         list[M.UPDATE_OLD_FILE] = nil
         list[M.UPDATE_TMP_FILE] = nil
@@ -161,6 +150,18 @@ function main()
         for name, _ in pairs(list) do
             M.log_info("Removing %s", name)
             file.remove(name)
+        end
+    end
+
+    M.flashLFS = function()
+        if node.flashindex and file.exists(M.LFS_NEW_FILE) then
+            print("Found LFS image. Flashing ...")
+            file.remove(M.LFS_TMP_FILE)
+            file.rename(M.LFS_NEW_FILE, M.LFS_TMP_FILE)
+            collectgarbage()
+            local err = node.flashreload(M.LFS_TMP_FILE)
+            print("Error flashing LFS image: " .. err)
+            return err
         end
     end
 
@@ -173,33 +174,35 @@ function main()
         else
             M.cleanup(fileList)
         end
-        M.log_info("Restarting after failed update and restoring previous version")
+        M.log_info(
+            "Restarting after failed update and restoring previous version")
+        M.flashLFS()
         M.restart()
     end
 
     M.start = function()
         if file.exists(M.UPDATE_TMP_FILE) then
+            file.remove(M.LFS_TMP_FILE)
             M.log_info("Starting new firmware for the first time...")
-            M.log_info("Set __FIRMWARE_ACCEPT to true within %d seconds to accept it", M.FIRMWARE_ACCEPT_TIMEOUT / 1000)
+            M.log_info(
+                "Set __FIRMWARE_ACCEPT to true within %d seconds to accept it",
+                M.FIRMWARE_ACCEPT_TIMEOUT / 1000)
 
             __FIRMWARE_ACCEPT = false
-            tmr.create():alarm(
-                M.FIRMWARE_ACCEPT_TIMEOUT,
-                tmr.ALARM_SINGLE,
-                function()
-                    if not __FIRMWARE_ACCEPT then
-                        M.log_error("New firmware was not accepted timely")
-                        file.remove(M.UPDATE_TMP_FILE)
-                        M.restorePreviousVersion()
-                        return
-                    else
-                        M.log_info("New firmware was accepted")
-                        file.remove(M.UPDATE_OLD_FILE)
-                        file.rename(M.UPDATE_TMP_FILE, M.UPDATE_OLD_FILE)
-                        __FIRMWARE_ACCEPT = nil
-                    end
+            tmr.create():alarm(M.FIRMWARE_ACCEPT_TIMEOUT, tmr.ALARM_SINGLE,
+                               function()
+                if not __FIRMWARE_ACCEPT then
+                    M.log_error("New firmware was not accepted timely")
+                    file.remove(M.UPDATE_TMP_FILE)
+                    M.restorePreviousVersion()
+                    return
+                else
+                    M.log_info("New firmware was accepted")
+                    file.remove(M.UPDATE_OLD_FILE)
+                    file.rename(M.UPDATE_TMP_FILE, M.UPDATE_OLD_FILE)
+                    __FIRMWARE_ACCEPT = nil
                 end
-            )
+            end)
         else
             if file.exists(M.UPDATE_NEW_FILE) then
                 file.remove(M.UPDATE_TMP_FILE)
@@ -212,33 +215,36 @@ function main()
                     return
                 end
                 M.cleanup(fileList)
-                M.log_info("new firmware was unpacked successfully. Restarting...")
+                if M.flashLFS() ~= nil then
+                    M.restorePreviousVersion()
+                    return
+                end
+                M.log_info(
+                    "new firmware was unpacked successfully. Restarting...")
                 M.restart()
                 return
             end
         end
 
-        if file.exists(M.PROGRAM) then
-            M.log_info("Bootloader finished. Launching application...")
-            dofile(M.PROGRAM)
-        else
-            M.log_error("Cannot find %s. Halt.", M.PROGRAM)
+        if node.flashindex then
+            local ok, err = pcall(node.flashindex("__lfsinit"))
+            if not ok then
+                M.log_error("Error loading LFS modules: %s", err)
+            else
+                M.log_info("LFS initialized")
+            end
         end
+        tmr.create():alarm(1, tmr.ALARM_SINGLE, runMain)
     end
-
     M.start()
 end
 
-tmr.create():alarm(
-    3000,
-    tmr.ALARM_SINGLE,
-    function()
-        if main ~= nil then
-            main()
-            main = nil
-        end
+tmr.create():alarm(3000, tmr.ALARM_SINGLE, function()
+    if boot ~= nil then
+        boot()
+        boot = nil
+        collectgarbage()
     end
-)
-
+end)
 
 `

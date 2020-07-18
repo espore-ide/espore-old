@@ -7,15 +7,18 @@ import (
 	"encoding/json"
 	"errors"
 	"espore/config"
+	"espore/session"
 	"espore/utils"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
+	"syscall"
 
 	"github.com/gobwas/glob"
 )
@@ -63,11 +66,60 @@ type FirmwareManifest2 struct {
 	Files           []*FileEntry `json:"files"`
 }
 
+type LFSEntry struct {
+	Files []*FileEntry
+	Hash  string
+}
+
 var parseDepRegex = []*regexp.Regexp{
 	regexp.MustCompile(`(?m)pcall\s*\(\s*require\s*,\s*"([^"]*)"\s*\)`),
 	regexp.MustCompile(`(?m)(?:^require|\s+require|pkg\.require)\s*\(\s*"([^"]*)"\s*(,.*)?\)`),
 }
 var parseDFRegex = regexp.MustCompile(`(?m)^--\s*datafile:\s*(.*)$`)
+
+var LFSEmbeddedFiles = map[string]string{
+	"__lfsinit.lua": lfsInitLua,
+	"__espore.lua":  session.EsporeLua,
+}
+
+func extractFile(file string, contents string, outputDir string) error {
+	path := filepath.Join(outputDir, file)
+	if _, err := os.Stat(path); err != nil {
+		if err := ioutil.WriteFile(path, []byte(contents), 0666); err != nil {
+			return fmt.Errorf("Error creating file %s: %s", file, err)
+		}
+	}
+	return nil
+}
+
+func Luac(sourceEntries []*FileEntry, dstFile string) (err error) {
+
+	tmpDir, err := ioutil.TempDir("", "espore-luac")
+	if err != nil {
+		return err
+	}
+	var sources []string
+	for _, f := range sourceEntries {
+		dst := strings.ReplaceAll(strings.ReplaceAll(f.Path, "/", ","), "\\", ",")
+		dst = filepath.Join(tmpDir, dst)
+		utils.CopyFile(filepath.Join(f.Base, f.Path), dst, false)
+		sources = append(sources, dst)
+	}
+
+	cmd := exec.Command("luac.cross", append([]string{"-o", dstFile, "-f"}, sources...)...)
+	outputBytes, err := cmd.CombinedOutput()
+	if err != nil {
+		exitErr := err.(*exec.ExitError)
+		var code int
+		if exitErr != nil {
+			if status, ok := exitErr.Sys().(syscall.WaitStatus); ok {
+				code = status.ExitStatus()
+			}
+		}
+		return fmt.Errorf("Error compiling lua, error code %d:\n%s", code, outputBytes)
+	}
+	return nil
+}
 
 func ReadDependenciesAndDatafiles(luaFile string) (deps, datafiles []string, err error) {
 	code, err := ioutil.ReadFile(luaFile)
@@ -147,7 +199,7 @@ func AddRoot(path string, roots map[string]FirmwareRoot) error {
 			return err
 		}
 		var add bool
-		if filepath.Ext(f) == ".lua" {
+		if isLua(f) {
 			add = true
 			deps, datafiles, err := ReadDependenciesAndDatafiles(fpath)
 			if err != nil {
@@ -242,7 +294,7 @@ func AddOtherFiles(allRoots map[string]FirmwareRoot, libs []string, fileMap map[
 			return fmt.Errorf("Cannot find library %s", lib)
 		}
 		for path, entry := range libRoot.Files {
-			if filepath.Ext(path) != ".lua" {
+			if !isLua(path) {
 				fileMap[path] = entry
 			}
 		}
@@ -283,6 +335,10 @@ func NewVirtualFileEntry(data []byte, path string) *FileEntry {
 	return &fe
 }
 
+var MainModule = ModuleDef{
+	Name: "main",
+}
+
 func buildDeviceFirmwareManifest(allRoots map[string]FirmwareRoot, devicePath string) (*FirmwareManifest2, error) {
 	var fwDef FirmwareDef
 	deviceName := filepath.Base(devicePath)
@@ -304,6 +360,7 @@ func buildDeviceFirmwareManifest(allRoots map[string]FirmwareRoot, devicePath st
 		modules = append(modules, root.Modules...)
 	}
 	modules = removeDuplicateModules(modules)
+	modules = append(modules, MainModule)
 
 	fileMap := make(map[string]*FileEntry)
 	for _, modDef := range modules {
@@ -342,26 +399,78 @@ func writeFileToImage(imageFile io.Writer, path string, size int64, sourceFile i
 	return err
 }
 
-func writeFirmwareImage(manifest *FirmwareManifest2, outputDir string) error {
-	imgFilename := filepath.Join(outputDir, fmt.Sprintf("%s.img", manifest.ID))
-	imgFile, err := os.Create(imgFilename)
-	if err != nil {
-		return err
+func getLFSEntry(manifest *FirmwareManifest2) *LFSEntry {
+	var lfs LFSEntry
+	var files []*FileEntry
+	hasher := sha1.New()
+
+	for _, file := range manifest.Files {
+		if isLua(file.Path) {
+			lfs.Files = append(lfs.Files, file)
+			hasher.Write([]byte(file.Hash))
+		} else {
+			files = append(files, file)
+		}
 	}
-	defer imgFile.Close()
-	var datafiles = []string{} // init like this so when converting to JSON we get an empty array
-	var imgBuf = &bytes.Buffer{}
-	fmt.Fprintln(imgBuf, "Version: 1 -- ESPore Device Image File")
-	fmt.Fprintf(imgBuf, "Device Id: %s\n", manifest.ID)
-	fmt.Fprintf(imgBuf, "Device Name: %s\n", manifest.Name)
-	fmt.Fprintf(imgBuf, "Total files: %d\n", len(manifest.Files)+1)
-	fmt.Fprintln(imgBuf)
+	if len(lfs.Files) > 0 {
+		lfs.Hash = hex.EncodeToString(hasher.Sum(nil))
+	}
+	manifest.Files = files
+	return &lfs
+}
+
+func writeFirmwareImage(manifest *FirmwareManifest2, LFSEntries map[string]LFSEntry, outputDir string) error {
 
 	// sort the files alphabetically to avoid variations in order that would affect
 	// the checksum
 	sort.Slice(manifest.Files, func(i, j int) bool {
 		return strings.Compare(manifest.Files[i].Path, manifest.Files[j].Path) < 0
 	})
+
+	var datafiles = []string{} // init like this so when converting to JSON we get an empty array
+
+	for _, fe := range manifest.Files {
+		datafiles = append(datafiles, fe.Datafiles...)
+	}
+
+	lfs := getLFSEntry(manifest)
+
+	if len(lfs.Files) > 0 {
+		for file := range LFSEmbeddedFiles {
+			lfs.Files = append(lfs.Files, &FileEntry{
+				Base: outputDir,
+				Path: file,
+			})
+		}
+
+		lfsFile := filepath.Join(outputDir, fmt.Sprintf("%s.lfs", lfs.Hash))
+		if err := Luac(lfs.Files, lfsFile); err != nil {
+			return fmt.Errorf("Error compiling lua firmware for %s: %s", manifest.DeviceInfo.Name, err)
+		}
+		lfsData, err := ioutil.ReadFile(lfsFile)
+		if err != nil {
+			return fmt.Errorf("Error reading lfs file %s for %s: %s", lfsFile, manifest.DeviceInfo.Name, err)
+		}
+		lfsFileEntry := NewVirtualFileEntry(lfsData, "lfs.img")
+		lfsFileEntry.Hash, err = utils.HashFile(lfsFile)
+		if err != nil {
+			return fmt.Errorf("Error hasing lfs file %s for %s: %s", lfsFile, manifest.DeviceInfo.Name, err)
+		}
+		manifest.Files = append(manifest.Files, lfsFileEntry)
+	}
+
+	imgFilename := filepath.Join(outputDir, fmt.Sprintf("%s.img", manifest.ID))
+	imgFile, err := os.Create(imgFilename)
+	if err != nil {
+		return err
+	}
+	defer imgFile.Close()
+	var imgBuf = &bytes.Buffer{}
+	fmt.Fprintf(imgBuf, "Version: 1 -- ESPore Device Image File\n")
+	fmt.Fprintf(imgBuf, "Device Id: %s\n", manifest.ID)
+	fmt.Fprintf(imgBuf, "Device Name: %s\n", manifest.Name)
+	fmt.Fprintf(imgBuf, "Total files: %d\n", len(manifest.Files)+1)
+	fmt.Fprintln(imgBuf)
 
 	for _, fe := range manifest.Files {
 		err := func() error {
@@ -387,7 +496,6 @@ func writeFirmwareImage(manifest *FirmwareManifest2, outputDir string) error {
 			if err := writeFileToImage(imgBuf, fe.Path, size, r); err != nil {
 				return err
 			}
-			datafiles = append(datafiles, fe.Datafiles...)
 			return nil
 		}()
 		if err != nil {
@@ -428,6 +536,12 @@ func Build(config *config.BuildConfig) error {
 		return fmt.Errorf("cannot remove output dir (%s) contents: %s", config.Output, err)
 	}
 
+	for file, content := range LFSEmbeddedFiles {
+		if err := extractFile(file, content, config.Output); err != nil {
+			return err
+		}
+	}
+
 	roots := make(map[string]FirmwareRoot)
 
 	for _, lib := range config.Libs {
@@ -445,6 +559,8 @@ func Build(config *config.BuildConfig) error {
 			}
 		}
 	}
+
+	var LFSEntries map[string]LFSEntry
 
 	for _, deviceDef := range config.Devices {
 		devices, _ := filepath.Glob(deviceDef)
@@ -465,7 +581,7 @@ func Build(config *config.BuildConfig) error {
 				if err := utils.WriteJSON(filepath.Join(config.Output, manifest.ID+".json"), manifest); err != nil {
 					return err
 				}
-				if err := writeFirmwareImage(manifest, config.Output); err != nil {
+				if err = writeFirmwareImage(manifest, LFSEntries, config.Output); err != nil {
 					return fmt.Errorf("Error writing firmware image for %s: %s", devicePath, err)
 				}
 
@@ -473,4 +589,8 @@ func Build(config *config.BuildConfig) error {
 		}
 	}
 	return nil
+}
+
+func isLua(path string) bool {
+	return filepath.Ext(path) == ".lua"
 }

@@ -7,12 +7,9 @@ import (
 	"hash"
 	"io"
 	"io/ioutil"
-	"log"
 	"os"
-	"os/exec"
 	"path"
 	"path/filepath"
-	"syscall"
 )
 
 func CopyFile(src, dst string, hashFile bool) (h string, err error) {
@@ -156,25 +153,6 @@ func RemoveDirContents(dir string) error {
 		if err != nil {
 			return err
 		}
-	}
-	return nil
-}
-
-func Luac(sources []string, dstFile string) (err error) {
-	cmd := exec.Command("./luac.cross", append([]string{"-o", dstFile, "-f"}, sources...)...)
-	outputBytes, err := cmd.Output()
-	if err != nil {
-		exitErr := err.(*exec.ExitError)
-		var code int
-		if exitErr != nil {
-			if status, ok := exitErr.Sys().(syscall.WaitStatus); ok {
-				code = status.ExitStatus()
-			}
-		}
-		if err != nil {
-			return err
-		}
-		log.Fatalf("Error compiling lua, error code %d: %s", code, outputBytes)
 	}
 	return nil
 }

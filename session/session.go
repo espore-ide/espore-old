@@ -87,7 +87,7 @@ func (s *Session) pushRuntime(socket io.Reader) error {
 
 	if r[1] != "READY" {
 		s.SendCommand("f = file.open('__espore.lua', 'w+')")
-		lines := strings.Split(upbin, "\n")
+		lines := strings.Split(EsporeLua, "\n")
 		for _, line := range lines {
 			s.SendCommand(fmt.Sprintf("f:write([[%s]] .. '\\n')", line))
 		}
@@ -109,7 +109,7 @@ func (s *Session) pushRuntime(socket io.Reader) error {
 }
 
 func (s *Session) InstallRuntime() error {
-	return s.PushStream(bytes.NewBufferString(upbin), int64(len(upbin)), "__espore.lua")
+	return s.PushStream(bytes.NewBufferString(EsporeLua), int64(len(EsporeLua)), "__espore.lua")
 }
 
 func (s *Session) startUpload(fname string, size int64) error {

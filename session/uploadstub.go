@@ -1,6 +1,6 @@
 package session
 
-const upbin = `
+const EsporeLua = `
 
 (function()
     local L = {}
