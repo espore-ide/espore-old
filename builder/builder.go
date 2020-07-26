@@ -58,10 +58,16 @@ type ModuleDef struct {
 	Config    json.RawMessage `json:"config,omitempty"`
 }
 
+type FirmwareLFSConfig struct {
+	Include []string `json:"include"`
+	Exclude []string `json:"exclude`
+}
+
 type FirmwareDef struct {
 	DeviceInfo
-	NodeMCUFirmware string   `json:"nodemcu-firmware"`
-	Libs            []string `json:"libs"`
+	NodeMCUFirmware string            `json:"nodemcu-firmware"`
+	Libs            []string          `json:"libs"`
+	LFS             FirmwareLFSConfig `json:"lfs"`
 }
 
 type FirmwareManifest struct {
@@ -358,6 +364,99 @@ var MainModule = ModuleDef{
 	Name: "main",
 }
 
+func packLFS(manifest *FirmwareManifest, LFSConfig FirmwareLFSConfig) error {
+	var lfs LFSEntry
+	var files []*FileEntry
+	hasher := sha1.New()
+
+	if len(LFSConfig.Include) == 0 {
+		LFSConfig.Include = []string{"**/*", "*"}
+	}
+
+	var includes []glob.Glob
+	var excludes []glob.Glob
+
+	for _, i := range LFSConfig.Include {
+		g, err := glob.Compile(i, '/')
+		if err != nil {
+			return fmt.Errorf("Error parsing LFS include glob in %s firmware manifest file", manifest.Name)
+		}
+		includes = append(includes, g)
+	}
+	for _, e := range LFSConfig.Exclude {
+		g, err := glob.Compile(e, '/')
+		if err != nil {
+			return fmt.Errorf("Error parsing LFS exclude glob in %s firmware manifest file", manifest.Name)
+		}
+		excludes = append(excludes, g)
+	}
+
+	for _, file := range manifest.Files {
+		var add bool
+		for _, ig := range includes {
+			if ig.Match(file.Path) {
+				add = true
+				break
+			}
+		}
+		for _, eg := range excludes {
+			if eg.Match(file.Path) {
+				add = false
+				break
+			}
+
+		}
+		add = add && isLua(file.Path)
+		if add {
+			lfs.Files = append(lfs.Files, file)
+			hasher.Write([]byte(file.Hash))
+		} else {
+			files = append(files, file)
+		}
+	}
+
+	manifest.Files = files
+
+	if len(lfs.Files) > 0 {
+		lfs.Hash = hex.EncodeToString(hasher.Sum(nil))
+		tmpDir, err := ioutil.TempDir("", "espore-luac")
+		if err != nil {
+			return err
+		}
+		defer os.RemoveAll(tmpDir)
+
+		for file, content := range LFSEmbeddedFiles {
+			if err := extractFile(file, content, tmpDir); err != nil {
+				return err
+			}
+		}
+
+		for file := range LFSEmbeddedFiles {
+			lfs.Files = append(lfs.Files, &FileEntry{
+				Base: tmpDir,
+				Path: file,
+			})
+		}
+
+		lfsFile := filepath.Join(tmpDir, fmt.Sprintf("%s.lfs", lfs.Hash))
+		if err := Luac(lfs.Files, lfsFile); err != nil {
+			return fmt.Errorf("Error compiling lua firmware for %s: %s", manifest.DeviceInfo.Name, err)
+		}
+		lfsData, err := ioutil.ReadFile(lfsFile)
+		if err != nil {
+			return fmt.Errorf("Error reading lfs file %s for %s: %s", lfsFile, manifest.DeviceInfo.Name, err)
+		}
+		lfsFileEntry := NewVirtualFileEntry(lfsData, "lfs.img")
+		lfsFileEntry.Hash, err = utils.HashFile(lfsFile)
+		if err != nil {
+			return fmt.Errorf("Error hasing lfs file %s for %s: %s", lfsFile, manifest.DeviceInfo.Name, err)
+		}
+		manifest.Files = append(manifest.Files, lfsFileEntry)
+	}
+
+	return nil
+}
+
 func buildDeviceFirmwareManifest(deviceRootLib *FirmwareLib, fwDef FirmwareDef) (*FirmwareManifest, error) {
 	usedLibs := getLibraryList(deviceRootLib, nil)
 
@@ -396,6 +495,12 @@ func buildDeviceFirmwareManifest(deviceRootLib *FirmwareLib, fwDef FirmwareDef) 
 		manifest.Files = append(manifest.Files, file)
 	}
 	manifest.NodeMCUFirmware = fwDef.NodeMCUFirmware
+
+	err = packLFS(&manifest, fwDef.LFS)
+	if err != nil {
+		return nil, err
+	}
+
 	return &manifest, nil
 }
 
@@ -404,26 +509,6 @@ func writeFileToImage(imageFile io.Writer, path string, size int64, sourceFile i
 	fmt.Fprintln(imageFile, size)
 	_, err := io.Copy(imageFile, sourceFile)
 	return err
-}
-
-func getLFSEntry(manifest *FirmwareManifest) *LFSEntry {
-	var lfs LFSEntry
-	var files []*FileEntry
-	hasher := sha1.New()
-
-	for _, file := range manifest.Files {
-		if isLua(file.Path) {
-			lfs.Files = append(lfs.Files, file)
-			hasher.Write([]byte(file.Hash))
-		} else {
-			files = append(files, file)
-		}
-	}
-	if len(lfs.Files) > 0 {
-		lfs.Hash = hex.EncodeToString(hasher.Sum(nil))
-	}
-	manifest.Files = files
-	return &lfs
 }
 
 func writeFirmwareImage(manifest *FirmwareManifest, outputDir string) error {
@@ -438,32 +523,6 @@ func writeFirmwareImage(manifest *FirmwareManifest, outputDir string) error {
 
 	for _, fe := range manifest.Files {
 		datafiles = append(datafiles, fe.Datafiles...)
-	}
-
-	lfs := getLFSEntry(manifest)
-
-	if len(lfs.Files) > 0 {
-		for file := range LFSEmbeddedFiles {
-			lfs.Files = append(lfs.Files, &FileEntry{
-				Base: outputDir,
-				Path: file,
-			})
-		}
-
-		lfsFile := filepath.Join(outputDir, fmt.Sprintf("%s.lfs", lfs.Hash))
-		if err := Luac(lfs.Files, lfsFile); err != nil {
-			return fmt.Errorf("Error compiling lua firmware for %s: %s", manifest.DeviceInfo.Name, err)
-		}
-		lfsData, err := ioutil.ReadFile(lfsFile)
-		if err != nil {
-			return fmt.Errorf("Error reading lfs file %s for %s: %s", lfsFile, manifest.DeviceInfo.Name, err)
-		}
-		lfsFileEntry := NewVirtualFileEntry(lfsData, "lfs.img")
-		lfsFileEntry.Hash, err = utils.HashFile(lfsFile)
-		if err != nil {
-			return fmt.Errorf("Error hasing lfs file %s for %s: %s", lfsFile, manifest.DeviceInfo.Name, err)
-		}
-		manifest.Files = append(manifest.Files, lfsFileEntry)
 	}
 
 	imgFilename := filepath.Join(outputDir, fmt.Sprintf("%s.img", manifest.ID))
@@ -541,12 +600,6 @@ func writeFirmwareImage(manifest *FirmwareManifest, outputDir string) error {
 func Build(config *config.BuildConfig) error {
 	if err := utils.RemoveDirContents(config.Output); err != nil {
 		return fmt.Errorf("cannot remove output dir (%s) contents: %s", config.Output, err)
-	}
-
-	for file, content := range LFSEmbeddedFiles {
-		if err := extractFile(file, content, config.Output); err != nil {
-			return err
-		}
 	}
 
 	allLibs := make(map[string]*FirmwareLib)
