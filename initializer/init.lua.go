@@ -16,7 +16,7 @@ end
 
 function boot()
     local M = {
-        FIRMWARE_ACCEPT_TIMEOUT = 20000,
+        FIRMWARE_ACCEPT_TIMEOUT = 60000,
         UPDATE_NEW_FILE = "update.img",
         UPDATE_TMP_FILE = "update.img.tmp",
         UPDATE_OLD_FILE = "update.old",
