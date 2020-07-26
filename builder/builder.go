@@ -64,7 +64,7 @@ type FirmwareDef struct {
 	Libs            []string `json:"libs"`
 }
 
-type FirmwareManifest2 struct {
+type FirmwareManifest struct {
 	DeviceInfo
 	NodeMCUFirmware string
 	Files           []*FileEntry `json:"files"`
@@ -358,7 +358,7 @@ var MainModule = ModuleDef{
 	Name: "main",
 }
 
-func buildDeviceFirmwareManifest(deviceRootLib *FirmwareLib, fwDef FirmwareDef) (*FirmwareManifest2, error) {
+func buildDeviceFirmwareManifest(deviceRootLib *FirmwareLib, fwDef FirmwareDef) (*FirmwareManifest, error) {
 	usedLibs := getLibraryList(deviceRootLib, nil)
 
 	var modules []ModuleDef
@@ -388,7 +388,7 @@ func buildDeviceFirmwareManifest(deviceRootLib *FirmwareLib, fwDef FirmwareDef) 
 	}
 	fileMap["modules.json"] = NewVirtualFileEntry(modbytes, "modules.json")
 
-	var manifest FirmwareManifest2
+	var manifest FirmwareManifest
 	manifest.DeviceInfo = fwDef.DeviceInfo
 	manifest.Name = fwDef.Name
 	manifest.Files = make([]*FileEntry, 0, len(fileMap))
@@ -406,7 +406,7 @@ func writeFileToImage(imageFile io.Writer, path string, size int64, sourceFile i
 	return err
 }
 
-func getLFSEntry(manifest *FirmwareManifest2) *LFSEntry {
+func getLFSEntry(manifest *FirmwareManifest) *LFSEntry {
 	var lfs LFSEntry
 	var files []*FileEntry
 	hasher := sha1.New()
@@ -426,7 +426,7 @@ func getLFSEntry(manifest *FirmwareManifest2) *LFSEntry {
 	return &lfs
 }
 
-func writeFirmwareImage(manifest *FirmwareManifest2, outputDir string) error {
+func writeFirmwareImage(manifest *FirmwareManifest, outputDir string) error {
 
 	// sort the files alphabetically to avoid variations in order that would affect
 	// the checksum
