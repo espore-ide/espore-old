@@ -29,9 +29,10 @@ type DeviceInfo struct {
 }
 
 type FirmwareLib struct {
-	BasePath string
-	Files    map[string]*FileEntry
-	Modules  []ModuleDef `json:"modules"`
+	BasePath     string
+	Files        map[string]*FileEntry
+	Modules      []ModuleDef `json:"modules"`
+	Dependencies []*FirmwareLib
 }
 
 type FileEntry struct {
@@ -39,13 +40,16 @@ type FileEntry struct {
 	Path         string   `json:"path"`
 	Hash         string   `json:"hash"`
 	Dependencies []string `json:"-"`
-	Datafiles    []string
-	Content      []byte `json:"-"`
+	Datafiles    []string `json:"datafiles,omitempty"`
+	Content      []byte   `json:"-"`
 }
 
 type LibDef struct {
-	Include []string `json:"include"`
-	Exclude []string `json:"exclude`
+	Dependencies []string    `json:"dependencies"`
+	Include      []string    `json:"include"`
+	Exclude      []string    `json:"exclude`
+	Name         string      `json:"name"`
+	Modules      []ModuleDef `json:"modules"`
 }
 
 type ModuleDef struct {
@@ -155,17 +159,28 @@ func ReadDependenciesAndDatafiles(luaFile string) (deps, datafiles []string, err
 	return deps, datafiles, nil
 }
 
-func AddLibrary(path string, allLibs map[string]FirmwareLib) error {
+func LoadLibrary(path string, allLibs map[string]*FirmwareLib, level int) (*FirmwareLib, error) {
+	lib := allLibs[path]
+	if lib != nil {
+		return lib, nil
+	}
+	if level > 100 {
+		return nil, fmt.Errorf("Circular dependency in %q", path)
+	}
+
 	list, err := utils.EnumerateDir(path)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	var libDef LibDef
-	libDefPath := filepath.Join(path, "libdef.json")
+	libDefPath := filepath.Join(path, "library.json")
 	utils.ReadJSON(libDefPath, &libDef)
 	if len(libDef.Include) == 0 {
 		libDef.Include = []string{"*"}
+	}
+	if libDef.Name == "" {
+		libDef.Name = path
 	}
 	var includes []glob.Glob
 	var excludes []glob.Glob
@@ -173,21 +188,21 @@ func AddLibrary(path string, allLibs map[string]FirmwareLib) error {
 	for _, i := range libDef.Include {
 		g, err := glob.Compile(i, '/')
 		if err != nil {
-			return fmt.Errorf("Error parsing include glob in %s", libDefPath)
+			return nil, fmt.Errorf("Error parsing include glob in %s", libDefPath)
 		}
 		includes = append(includes, g)
 	}
 	for _, e := range libDef.Exclude {
 		g, err := glob.Compile(e, '/')
 		if err != nil {
-			return fmt.Errorf("Error parsing exclude glob in %s", libDefPath)
+			return nil, fmt.Errorf("Error parsing exclude glob in %s", libDefPath)
 		}
 		excludes = append(excludes, g)
 	}
 
 	entries := make(map[string]*FileEntry)
 	for _, f := range list {
-		if f == "modules.json" || f == "libdef.json" {
+		if f == "library.json" {
 			continue
 		}
 		var entry FileEntry
@@ -196,14 +211,14 @@ func AddLibrary(path string, allLibs map[string]FirmwareLib) error {
 		entry.Base = path
 		entry.Hash, err = utils.HashFile(fpath)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		var add bool
 		if isLua(f) {
 			add = true
 			deps, datafiles, err := ReadDependenciesAndDatafiles(fpath)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			entry.Dependencies = deps
 			entry.Datafiles = datafiles
@@ -225,30 +240,40 @@ func AddLibrary(path string, allLibs map[string]FirmwareLib) error {
 			entries[entry.Path] = &entry
 		}
 	}
-	var modules []ModuleDef
-	utils.ReadJSON(filepath.Join(path, "modules.json"), &modules)
 
-	allLibs[path] = FirmwareLib{
-		BasePath: path,
-		Files:    entries,
-		Modules:  modules,
+	var dependencies []*FirmwareLib
+	for _, depLibName := range libDef.Dependencies {
+		dep, err := LoadLibrary(depLibName, allLibs, level+1)
+		if err != nil {
+			return nil, fmt.Errorf("Error resolving dependency %q of library %q", depLibName, path)
+		}
+		dependencies = append(dependencies, dep)
 	}
-	return nil
+
+	lib = &FirmwareLib{
+		BasePath:     path,
+		Files:        entries,
+		Modules:      libDef.Modules,
+		Dependencies: dependencies,
+	}
+	allLibs[path] = lib
+	return lib, nil
 }
 
-func getDeviceFirmwareLibs(allLibs map[string]FirmwareLib, libNames []string) ([]FirmwareLib, error) {
-	var libs []FirmwareLib
-	for _, libName := range libNames {
-		var ok bool
-		var lib FirmwareLib
-		lib, ok = allLibs[libName]
-		if ok {
-			libs = append(libs, lib)
-		} else {
-			return nil, fmt.Errorf("Cannot find library with name '%s'", libName)
-		}
+func getLibraryList(lib *FirmwareLib, added map[*FirmwareLib]bool) []*FirmwareLib {
+	if added == nil {
+		added = make(map[*FirmwareLib]bool)
 	}
-	return libs, nil
+	if added[lib] {
+		return nil
+	}
+	var libList []*FirmwareLib
+	for _, dep := range lib.Dependencies {
+		libList = append(libList, getLibraryList(dep, added)...)
+	}
+	added[lib] = true
+	return append(libList, lib)
+
 }
 
 func Mod2File(moduleName string) string {
@@ -257,7 +282,7 @@ func Mod2File(moduleName string) string {
 
 var ErrFileEntryNotFound = errors.New("Cannot find file in firmware libraries")
 
-func FindInLibraries(fileName string, libs []FirmwareLib) (*FileEntry, error) {
+func FindInLibraries(fileName string, libs []*FirmwareLib) (*FileEntry, error) {
 	for _, lib := range libs {
 		entry, ok := lib.Files[fileName]
 		if ok {
@@ -267,7 +292,7 @@ func FindInLibraries(fileName string, libs []FirmwareLib) (*FileEntry, error) {
 	return nil, ErrFileEntryNotFound
 }
 
-func AddFilesFromModule(moduleName string, libs []FirmwareLib, fileMap map[string]*FileEntry) error {
+func AddFilesFromModule(moduleName string, libs []*FirmwareLib, fileMap map[string]*FileEntry) error {
 	moduleFileName := Mod2File(moduleName)
 	if _, ok := fileMap[moduleFileName]; ok {
 		return nil
@@ -285,14 +310,8 @@ func AddFilesFromModule(moduleName string, libs []FirmwareLib, fileMap map[strin
 	return nil
 }
 
-func AddOtherFiles(allLibs map[string]FirmwareLib, libNames []string, fileMap map[string]*FileEntry) error {
-	for _, libName := range libNames {
-		var ok bool
-		var lib FirmwareLib
-		lib, ok = allLibs[libName]
-		if !ok {
-			return fmt.Errorf("Cannot find library %s", libName)
-		}
+func AddOtherFiles(libs []*FirmwareLib, fileMap map[string]*FileEntry) error {
+	for _, lib := range libs {
 		for path, entry := range lib.Files {
 			if !isLua(path) {
 				fileMap[path] = entry
@@ -339,20 +358,8 @@ var MainModule = ModuleDef{
 	Name: "main",
 }
 
-func buildDeviceFirmwareManifest(allLibs map[string]FirmwareLib, devicePath string) (*FirmwareManifest2, error) {
-	var fwDef FirmwareDef
-	deviceName := filepath.Base(devicePath)
-	if err := utils.ReadJSON(filepath.Join(devicePath, "firmware.json"), &fwDef); err != nil {
-		return nil, fmt.Errorf("Cannot read firmware file for %s in %s: %s", deviceName, devicePath, err)
-	}
-	usedLibs, err := getDeviceFirmwareLibs(allLibs, fwDef.Libs)
-	if err != nil {
-		return nil, fmt.Errorf("Cannot build firmware libs for %s in %s: %s", deviceName, devicePath, err)
-	}
-	deviceRootLib, ok := allLibs[devicePath]
-	if !ok {
-		return nil, fmt.Errorf("Cannot find device root library for %s in %s", deviceName, devicePath)
-	}
+func buildDeviceFirmwareManifest(deviceRootLib *FirmwareLib, fwDef FirmwareDef) (*FirmwareManifest2, error) {
+	usedLibs := getLibraryList(deviceRootLib, nil)
 
 	var modules []ModuleDef
 	modules = append(modules, deviceRootLib.Modules...)
@@ -369,11 +376,11 @@ func buildDeviceFirmwareManifest(allLibs map[string]FirmwareLib, devicePath stri
 		}
 	}
 
-	if err := AddOtherFiles(allLibs, fwDef.Libs, fileMap); err != nil {
-		return nil, fmt.Errorf("Error adding other files in device %s: %s", deviceName, err)
+	if err := AddOtherFiles(usedLibs, fileMap); err != nil {
+		return nil, fmt.Errorf("Error adding other files in device %s: %s", fwDef.Name, err)
 	}
 
-	AddDeviceSpecificFiles(&deviceRootLib, fileMap)
+	AddDeviceSpecificFiles(deviceRootLib, fileMap)
 
 	modbytes, err := json.MarshalIndent(modules, "", "\t")
 	if err != nil {
@@ -542,17 +549,17 @@ func Build(config *config.BuildConfig) error {
 		}
 	}
 
-	allLibs := make(map[string]FirmwareLib)
+	allLibs := make(map[string]*FirmwareLib)
 
-	for _, lib := range config.Libs {
-		libs, _ := filepath.Glob(lib)
-		for _, lib := range libs {
-			fi, err := os.Stat(lib)
+	for _, libGlob := range config.Libs {
+		libNames, _ := filepath.Glob(libGlob)
+		for _, libName := range libNames {
+			fi, err := os.Stat(libName)
 			if err != nil {
 				return err
 			}
 			if fi.IsDir() {
-				err = AddLibrary(lib, allLibs)
+				_, err = LoadLibrary(libName, allLibs, 0)
 				if err != nil {
 					return err
 				}
@@ -568,11 +575,18 @@ func Build(config *config.BuildConfig) error {
 				return err
 			}
 			if fi.IsDir() {
-				err = AddLibrary(devicePath, allLibs)
+				deviceRootLib, err := LoadLibrary(devicePath, allLibs, 0)
 				if err != nil {
 					return err
 				}
-				manifest, err := buildDeviceFirmwareManifest(allLibs, devicePath)
+
+				var fwDef FirmwareDef
+				deviceName := filepath.Base(devicePath)
+				if err := utils.ReadJSON(filepath.Join(devicePath, "firmware.json"), &fwDef); err != nil {
+					return fmt.Errorf("Cannot read firmware file for %s in %s: %s", deviceName, devicePath, err)
+				}
+
+				manifest, err := buildDeviceFirmwareManifest(deviceRootLib, fwDef)
 				if err != nil {
 					return fmt.Errorf("Error building device firmware for device with name %q: %s", fi.Name(), err)
 				}
