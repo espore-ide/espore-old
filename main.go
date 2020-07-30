@@ -20,8 +20,8 @@ import (
 	"github.com/tarm/serial"
 )
 
-func getSerialSession() (s *session.Session, close func(), err error) {
-	socket, err := serial.OpenPort(&serial.Config{Name: "/dev/ttyUSB0", Baud: 115200, ReadTimeout: time.Second * 1})
+func getSerialSession(port string) (s *session.Session, close func(), err error) {
+	socket, err := serial.OpenPort(&serial.Config{Name: port, Baud: 115200, ReadTimeout: time.Second * 1})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -41,8 +41,8 @@ func getSerialSession() (s *session.Session, close func(), err error) {
 
 }
 
-func initFirmware(outputDir string) error {
-	s, close, err := getSerialSession()
+func initFirmware(outputDir string, port string) error {
+	s, close, err := getSerialSession(port)
 	if err != nil {
 		return err
 	}
@@ -81,6 +81,7 @@ func main() {
 	initFlag := flag.Bool("initialize", false, "Initialize device")
 	cliFlag := flag.Bool("cli", false, "Run the interactive UI")
 	serverFlag := flag.Bool("server", false, "Run the firmware server")
+	port := flag.String("port", "/dev/ttyUSB0", "Serial port to connect to")
 
 	flag.Parse()
 
@@ -100,7 +101,7 @@ func main() {
 	}
 
 	if *cliFlag {
-		session, close, err := getSerialSession()
+		session, close, err := getSerialSession(*port)
 		if err != nil {
 			log.Fatalf("Error opening session over serial: %s", err)
 		}
@@ -129,7 +130,7 @@ func main() {
 	}
 
 	if *initFlag {
-		if err := initFirmware(config.Build.Output); err != nil {
+		if err := initFirmware(config.Build.Output, *port); err != nil {
 			log.Fatal(err)
 		}
 	}
