@@ -18,7 +18,8 @@ function boot()
     local M = {
         FIRMWARE_ACCEPT_TIMEOUT = 60000,
         UPDATE_NEW_FILE = "update.img",
-        UPDATE_TMP_FILE = "update.img.tmp",
+        UPDATE_1ST_FILE = "update.img.1st",
+        UPDATE_FAIL_FILE = "update.img.fail",
         UPDATE_OLD_FILE = "update.old",
         LFS_NEW_FILE = "lfs.img",
         LFS_TMP_FILE = "lfs.img.tmp",
@@ -61,9 +62,14 @@ function boot()
     end
 
     M.restart = function()
-        M.log_info("Restarting in 5 seconds ...")
+        M.log_info("Restarting in 5 seconds. Set 'restart' to false to stop ...")
+        restart = true
         tmr.create():alarm(5000, tmr.ALARM_SINGLE, function()
-            node.restart()
+            if restart then
+                node.restart()
+            else
+                M.log_info("restart cancelled.")
+            end
         end)
     end
 
@@ -145,7 +151,8 @@ function boot()
         for _, name in ipairs(fileList) do list[name] = nil end
         list[M.UPDATE_NEW_FILE] = nil
         list[M.UPDATE_OLD_FILE] = nil
-        list[M.UPDATE_TMP_FILE] = nil
+        list[M.UPDATE_1ST_FILE] = nil
+        list[M.UPDATE_FAIL_FILE] = nil
         list["init.lua"] = nil
         for name, _ in pairs(list) do
             M.log_info("Removing %s", name)
@@ -167,6 +174,9 @@ function boot()
 
     M.restorePreviousVersion = function()
         M.log_info("Attempting to restore previous firmware version...")
+        file.remove(M.UPDATE_1ST_FILE)
+        file.remove(M.UPDATE_FAIL_FILE)
+        file.remove(M.UPDATE_NEW_FILE)
         fileList, err = M.unpackImage(M.UPDATE_OLD_FILE)
         if err ~= nil then
             M.log_error("Error restoring previous version. Halt.")
@@ -181,48 +191,48 @@ function boot()
     end
 
     M.start = function()
-        if file.exists(M.UPDATE_TMP_FILE) then
-            file.remove(M.LFS_TMP_FILE)
-            M.log_info("Starting new firmware for the first time...")
-            M.log_info(
-                "Set __FIRMWARE_ACCEPT to true within %d seconds to accept it",
-                M.FIRMWARE_ACCEPT_TIMEOUT / 1000)
-
-            __FIRMWARE_ACCEPT = false
-            tmr.create():alarm(M.FIRMWARE_ACCEPT_TIMEOUT, tmr.ALARM_SINGLE,
-                               function()
-                if not __FIRMWARE_ACCEPT then
-                    M.log_error("New firmware was not accepted timely")
-                    file.remove(M.UPDATE_TMP_FILE)
-                    M.restorePreviousVersion()
-                    return
-                else
-                    M.log_info("New firmware was accepted")
-                    file.remove(M.UPDATE_OLD_FILE)
-                    file.rename(M.UPDATE_TMP_FILE, M.UPDATE_OLD_FILE)
-                    __FIRMWARE_ACCEPT = nil
-                end
-            end)
+        if file.exists(M.UPDATE_FAIL_FILE) then
+            M.log_error(
+                "Update failed to be accepted. Rolling back to previous version")
+            M.restorePreviousVersion()
         else
-            if file.exists(M.UPDATE_NEW_FILE) then
-                file.remove(M.UPDATE_TMP_FILE)
-                file.rename(M.UPDATE_NEW_FILE, M.UPDATE_TMP_FILE)
-                local fileList, err = M.unpackImage(M.UPDATE_TMP_FILE)
-                if err ~= nil then
-                    file.remove(M.UPDATE_TMP_FILE)
-                    M.log_error("Error unpacking update file: %s", err)
-                    M.restorePreviousVersion()
-                    return
-                end
-                M.cleanup(fileList)
-                if M.flashLFS() ~= nil then
-                    M.restorePreviousVersion()
-                    return
-                end
+            if file.exists(M.UPDATE_1ST_FILE) then
+                file.remove(M.LFS_TMP_FILE)
+                file.remove(M.UPDATE_FAIL_FILE)
+                file.rename(M.UPDATE_1ST_FILE, M.UPDATE_FAIL_FILE)
+                M.log_info("Starting new firmware for the first time...")
                 M.log_info(
-                    "new firmware was unpacked successfully. Restarting...")
-                M.restart()
-                return
+                    "Call __acceptFirmware() to accept it before a reboot.")
+
+                __acceptFirmware = loadstring(
+                                       string.format(
+                                           [[
+                    file.remove("%s")
+                    file.rename("%s", "%s")
+                    print("[boot] New firmware was accepted")
+                    __acceptFirmware = nil
+                ]], M.UPDATE_OLD_FILE, M.UPDATE_FAIL_FILE, M.UPDATE_OLD_FILE))
+            else
+                if file.exists(M.UPDATE_NEW_FILE) then
+                    file.remove(M.UPDATE_1ST_FILE)
+                    file.rename(M.UPDATE_NEW_FILE, M.UPDATE_1ST_FILE)
+                    local fileList, err = M.unpackImage(M.UPDATE_1ST_FILE)
+                    if err ~= nil then
+                        M.log_error("Error unpacking update file: %s", err)
+                        M.restorePreviousVersion()
+                        return
+                    end
+                    M.cleanup(fileList)
+                    if M.flashLFS() ~= nil then
+                        M.log_error("Error flashing LFS: %s", err)
+                        M.restorePreviousVersion()
+                        return
+                    end
+                    M.log_info(
+                        "new firmware was unpacked successfully. Restarting...")
+                    M.restart()
+                    return
+                end
             end
         end
 
@@ -246,5 +256,6 @@ tmr.create():alarm(3000, tmr.ALARM_SINGLE, function()
         collectgarbage()
     end
 end)
+
 
 `
