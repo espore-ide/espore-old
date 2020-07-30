@@ -1,6 +1,6 @@
 package initializer
 
-const initLua = `
+const InitLua = `
 print("\n\n\nEspore bootloader will launch in 3 seconds.")
 print("Set boot to nil to stop\n\n\n")
 

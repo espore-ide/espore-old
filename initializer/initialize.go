@@ -23,7 +23,7 @@ func Initialize(outputDir string, session *session.Session) error {
 	if err != nil {
 		return err
 	}
-	err = session.PushStream(strings.NewReader(initLua), int64(len(initLua)), "init.lua")
+	err = session.PushStream(strings.NewReader(InitLua), int64(len(InitLua)), "init.lua")
 	if err != nil {
 		return err
 	}

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"espore/config"
+	"espore/initializer"
 	"espore/session"
 	"espore/utils"
 	"fmt"
@@ -373,6 +374,8 @@ func packLFS(manifest *FirmwareManifest, LFSConfig FirmwareLFSConfig) error {
 		LFSConfig.Include = []string{"**/*", "*"}
 	}
 
+	LFSConfig.Exclude = append(LFSConfig.Exclude, "init.lua") // always exclude init.lua from LFS
+
 	var includes []glob.Glob
 	var excludes []glob.Glob
 
@@ -486,6 +489,7 @@ func buildDeviceFirmwareManifest(deviceRootLib *FirmwareLib, fwDef FirmwareDef) 
 		return nil, err
 	}
 	fileMap["modules.json"] = NewVirtualFileEntry(modbytes, "modules.json")
+	fileMap["init.lua"] = NewVirtualFileEntry([]byte(initializer.InitLua), "init.lua")
 
 	var manifest FirmwareManifest
 	manifest.DeviceInfo = fwDef.DeviceInfo
