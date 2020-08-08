@@ -192,6 +192,7 @@ function boot()
             M.log_error(
                 "Update failed to be accepted. Rolling back to previous version")
             M.restorePreviousVersion()
+            return
         else
             if file.exists(M.UPDATE_1ST_FILE) then
                 file.remove(M.LFS_TMP_FILE)

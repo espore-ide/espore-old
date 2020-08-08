@@ -1,7 +1,6 @@
 package initializer
 
-const InitLua = `
-print("\n\n\nEspore bootloader will launch in 3 seconds.")
+const InitLua = `print("\n\n\nEspore bootloader will launch in 3 seconds.")
 print("Set boot to nil to stop\n\n\n")
 
 function runMain()
@@ -195,6 +194,7 @@ function boot()
             M.log_error(
                 "Update failed to be accepted. Rolling back to previous version")
             M.restorePreviousVersion()
+            return
         else
             if file.exists(M.UPDATE_1ST_FILE) then
                 file.remove(M.LFS_TMP_FILE)
@@ -256,6 +256,5 @@ tmr.create():alarm(3000, tmr.ALARM_SINGLE, function()
         collectgarbage()
     end
 end)
-
 
 `
