@@ -77,11 +77,6 @@ type FirmwareManifest struct {
 	Files           []*FileEntry `json:"files"`
 }
 
-type LFSEntry struct {
-	Files []*FileEntry
-	Hash  string
-}
-
 var parseDepRegex = []*regexp.Regexp{
 	regexp.MustCompile(`(?m)pcall\s*\(\s*require\s*,\s*"([^"]*)"\s*\)`),
 	regexp.MustCompile(`(?m)(?:^require|\s+require|pkg\.require)\s*\(\s*"([^"]*)"\s*(,.*)?\)`),
@@ -90,7 +85,6 @@ var parseDFRegex = regexp.MustCompile(`(?m)^--\s*datafile:\s*(.*)$`)
 
 var LFSEmbeddedFiles = map[string]string{
 	"__lfsinit.lua": lfsInitLua,
-	"__espore.lua":  session.EsporeLua,
 }
 
 func extractFile(file string, contents string, outputDir string) error {
@@ -366,8 +360,11 @@ var MainModule = ModuleDef{
 }
 
 func packLFS(manifest *FirmwareManifest, LFSConfig FirmwareLFSConfig) error {
-	var lfs LFSEntry
+	var lfsFiles []*FileEntry
+	var lfsHash string
+	var lfsDatafiles []string
 	var files []*FileEntry
+
 	hasher := sha1.New()
 
 	if len(LFSConfig.Include) == 0 {
@@ -411,7 +408,8 @@ func packLFS(manifest *FirmwareManifest, LFSConfig FirmwareLFSConfig) error {
 		}
 		add = add && isLua(file.Path)
 		if add {
-			lfs.Files = append(lfs.Files, file)
+			lfsFiles = append(lfsFiles, file)
+			lfsDatafiles = append(lfsDatafiles, file.Datafiles...)
 			hasher.Write([]byte(file.Hash))
 		} else {
 			files = append(files, file)
@@ -420,8 +418,8 @@ func packLFS(manifest *FirmwareManifest, LFSConfig FirmwareLFSConfig) error {
 
 	manifest.Files = files
 
-	if len(lfs.Files) > 0 {
-		lfs.Hash = hex.EncodeToString(hasher.Sum(nil))
+	if len(lfsFiles) > 0 {
+		lfsHash = hex.EncodeToString(hasher.Sum(nil))
 		tmpDir, err := ioutil.TempDir("", "espore-luac")
 		if err != nil {
 			return err
@@ -435,14 +433,14 @@ func packLFS(manifest *FirmwareManifest, LFSConfig FirmwareLFSConfig) error {
 		}
 
 		for file := range LFSEmbeddedFiles {
-			lfs.Files = append(lfs.Files, &FileEntry{
+			lfsFiles = append(lfsFiles, &FileEntry{
 				Base: tmpDir,
 				Path: file,
 			})
 		}
 
-		lfsFile := filepath.Join(tmpDir, fmt.Sprintf("%s.lfs", lfs.Hash))
-		if err := Luac(lfs.Files, lfsFile); err != nil {
+		lfsFile := filepath.Join(tmpDir, fmt.Sprintf("%s.lfs", lfsHash))
+		if err := Luac(lfsFiles, lfsFile); err != nil {
 			return fmt.Errorf("Error compiling lua firmware for %s: %s", manifest.DeviceInfo.Name, err)
 		}
 		lfsData, err := ioutil.ReadFile(lfsFile)
@@ -451,6 +449,7 @@ func packLFS(manifest *FirmwareManifest, LFSConfig FirmwareLFSConfig) error {
 		}
 		lfsFileEntry := NewVirtualFileEntry(lfsData, "lfs.img")
 		lfsFileEntry.Hash, err = utils.HashFile(lfsFile)
+		lfsFileEntry.Datafiles = lfsDatafiles
 		if err != nil {
 			return fmt.Errorf("Error hasing lfs file %s for %s: %s", lfsFile, manifest.DeviceInfo.Name, err)
 		}
@@ -490,6 +489,7 @@ func buildDeviceFirmwareManifest(deviceRootLib *FirmwareLib, fwDef FirmwareDef) 
 	}
 	fileMap["modules.json"] = NewVirtualFileEntry(modbytes, "modules.json")
 	fileMap["init.lua"] = NewVirtualFileEntry([]byte(initializer.InitLua), "init.lua")
+	fileMap["__espore.lua"] = NewVirtualFileEntry([]byte(session.EsporeLua), "__espore.lua")
 
 	var manifest FirmwareManifest
 	manifest.DeviceInfo = fwDef.DeviceInfo
