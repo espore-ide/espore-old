@@ -169,23 +169,24 @@ function boot()
         end
     end
 
-    M.restorePreviousVersion = function()
-        M.log_info("Attempting to restore previous firmware version...")
-        file.remove(M.UPDATE_1ST_FILE)
-        file.remove(M.UPDATE_FAIL_FILE)
-        file.remove(M.UPDATE_NEW_FILE)
-        fileList, err = M.unpackImage(M.UPDATE_OLD_FILE)
-        if err ~= nil then
-            M.log_error("Error restoring previous version. Halt.")
-            return
-        else
-            M.cleanup(fileList)
+    M.restorePreviousVersion =
+        function() -- TODO: restore previous version should also restore updater-etag!
+            M.log_info("Attempting to restore previous firmware version...")
+            file.remove(M.UPDATE_1ST_FILE)
+            file.remove(M.UPDATE_FAIL_FILE)
+            file.remove(M.UPDATE_NEW_FILE)
+            fileList, err = M.unpackImage(M.UPDATE_OLD_FILE)
+            if err ~= nil then
+                M.log_error("Error restoring previous version. Halt.")
+                return
+            else
+                M.cleanup(fileList)
+            end
+            M.log_info(
+                "Restarting after failed update and restoring previous version")
+            M.flashLFS()
+            M.restart()
         end
-        M.log_info(
-            "Restarting after failed update and restoring previous version")
-        M.flashLFS()
-        M.restart()
-    end
 
     M.start = function()
         if file.exists(M.UPDATE_FAIL_FILE) then
